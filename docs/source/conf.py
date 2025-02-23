@@ -100,4 +100,3 @@ intersphinx_mapping = {
 
 html_theme = "sphinx_book_theme"
 pygments_dark_style = "monokai"
-html_static_path = ["_static"]
