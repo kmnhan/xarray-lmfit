@@ -1,0 +1,61 @@
+ci:
+  autoupdate_commit_msg: "ci(pre-commit): pre-commit autoupdate"
+  autofix_commit_msg: "style: pre-commit auto fixes [...]"
+  autoupdate_schedule: monthly
+
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # Meta hooks
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  # Security & credential scanning/alerting
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-ast
+      - id: check-builtin-literals
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-vcs-permalinks
+      - id: check-yaml
+      - id: debug-statements
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  # Pygrep hooks
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+      - id: rst-backticks
+      - id: rst-directive-colons
+      - id: rst-inline-touching-normal
+      - id: text-unicode-replacement-char
+      - id: python-use-type-annotations
+
+  # Lint and format with ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.9.4
+    hooks:
+      # Run the linter.
+      - id: ruff
+        args: [--fix, --show-fixes]
+      # Run the formatter.
+      - id: ruff-format
+
+  # Commitizen
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.1.1
+    hooks:
+      - id: commitizen
+        additional_dependencies: [cz-changeup]
+      - id: commitizen-branch
+        additional_dependencies: [cz-changeup]
+        stages: [pre-push]
