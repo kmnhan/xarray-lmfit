@@ -40,8 +40,8 @@ def fit_expected_darr():
     )
 
 
-@pytest.mark.parametrize("use_dask", [True, False])
-def test_modelfit(
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_da_modelfit(
     use_dask: bool,
     exp_decay_model: lmfit.Model,
     fit_test_darr: xr.DataArray,
@@ -80,6 +80,66 @@ def test_modelfit(
 
     assert "a" in fit.param
     assert fit.modelfit_results.dims == ()
+
+
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+@pytest.mark.parametrize("parallel", [True, False], ids=["serial", "parallel"])
+def test_ds_modelfit(
+    use_dask: bool,
+    parallel: bool,
+    exp_decay_model: lmfit.Model,
+    fit_test_darr: xr.DataArray,
+    fit_expected_darr: xr.DataArray,
+) -> None:
+    fit_test_ds = xr.Dataset({"test0": fit_test_darr, "test1": fit_test_darr})
+
+    # Tests are adapted from xarray's curvefit tests
+    if use_dask:
+        fit_test_ds = fit_test_ds.chunk({"x": 1})
+
+    # Params as dictionary
+    fit = fit_test_ds.xlm.modelfit(
+        coords=[fit_test_ds.t],
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        parallel=parallel,
+    )
+    np.testing.assert_allclose(
+        fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
+    )
+    np.testing.assert_allclose(
+        fit.test1_modelfit_coefficients, fit_expected_darr, rtol=1e-3
+    )
+
+    # Params as lmfit.Parameters
+    fit = fit_test_ds.xlm.modelfit(
+        coords=[fit_test_ds.t],
+        model=exp_decay_model,
+        params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
+        parallel=parallel,
+    )
+    np.testing.assert_allclose(
+        fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
+    )
+    np.testing.assert_allclose(
+        fit.test1_modelfit_coefficients, fit_expected_darr, rtol=1e-3
+    )
+
+    if use_dask:
+        fit_test_ds = fit_test_ds.compute()
+
+    # Test 0dim output
+    fit = fit_test_ds.xlm.modelfit(
+        coords="t",
+        model=lmfit.Model(power),
+        reduce_dims="x",
+        params={"a": {"value": 0.3, "vary": True}},
+        parallel=parallel,
+    )
+
+    assert "a" in fit.param
+    assert fit.test0_modelfit_results.dims == ()
+    assert fit.test1_modelfit_results.dims == ()
 
 
 @pytest.mark.parametrize("use_dask", [True, False])
