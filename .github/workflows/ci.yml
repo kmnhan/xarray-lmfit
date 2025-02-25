@@ -44,7 +44,7 @@ jobs:
 
       - name: Test with pytest with coverage
         if: matrix.python-version == '3.13'
-        run: uv run pytest -v --cov-branch --junitxml=junit.xml
+        run: uv run pytest -v --cov --cov-branch --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13'
