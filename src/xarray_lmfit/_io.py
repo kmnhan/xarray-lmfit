@@ -1,6 +1,6 @@
 import os
 
-import lmfit.model
+import lmfit
 import xarray as xr
 
 
