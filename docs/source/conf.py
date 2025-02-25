@@ -29,6 +29,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_autosummary_accessors",
+    "nbsphinx",
 ]
 
 templates_path = ["_templates", sphinx_autosummary_accessors.templates_path]
@@ -94,6 +95,8 @@ intersphinx_mapping = {
     # "hvplot": ("https://hvplot.holoviz.org", None),
 }
 
+# -- nbsphinx options --------------------------------------------------------
+nbsphinx_execute_arguments = ["--InlineBackend.figure_formats={'svg', 'pdf'}"]
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

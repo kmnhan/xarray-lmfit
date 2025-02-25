@@ -216,7 +216,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
 
         Returns
         -------
-        lmfit_results : xarray.Dataset
+        xarray.Dataset
             A single dataset which contains:
 
             [var]_modelfit_results

@@ -29,7 +29,7 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
         before saving.
     path
         Path to which to save the fit result dataset.
-    **kwargs : dict
+    **kwargs
         Additional keyword arguments that are passed to
         :meth:`xarray.Dataset.to_netcdf`.
 
@@ -52,7 +52,9 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
     result_ds.to_netcdf(path, **kwargs)
 
 
-def load_fit(path: str | os.PathLike, funcdefs=None, **kwargs) -> xr.Dataset:
+def load_fit(
+    path: str | os.PathLike, funcdefs: dict | None = None, **kwargs
+) -> xr.Dataset:
     """Load fit results from a netCDF file.
 
     This function loads a dataset from a netCDF file and deserializes any

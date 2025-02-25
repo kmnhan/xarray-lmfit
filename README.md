@@ -8,7 +8,7 @@ xarray-lmfit is a Python package that bridges the power of [xarray](http://xarra
 
 With xarray-lmfit, [lmfit models](https://lmfit.github.io/lmfit-py/model.html) can be fit to xarray Datasets and DataArrays, automatically propagating across multiple dimensions. The fit results are stored as xarray Datasets, retaining the original coordinates and dimensions of the input data.
 
-Disclaimer: This package is not affiliated with the xarray or lmfit projects. Any issue that arises from using this package should be reported to the [xarray-lmfit issue tracker](https://github.com/kmnhan/xarray-lmfit/issues), not to the xarray or lmfit projects.
+Disclaimer: Please note that this package is not affiliated with either the xarray or lmfit projects. Any issues arising from its use should be reported to the [xarray-lmfit issue tracker](https://github.com/kmnhan/xarray-lmfit/issues) rather than to the xarray or lmfit projects.
 
 ## Installation
 
