@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  workflow_dispatch:
+env:
+  FORCE_COLOR: 1
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'kmnhan/xarray-lmfit'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/xarray-lmfit
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run commitizen
+        id: cz
+        uses: commitizen-tools/commitizen-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          changelog_increment_filename: body.md
+          extra_requirements: "cz-changeup"
+
+      - name: Install uv
+        if: env.REVISION != env.PREVIOUS_REVISION
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Build and publish package distributions to PyPI
+        if: env.REVISION != env.PREVIOUS_REVISION
+        run: |
+          uv build
+          uv publish --trusted-publishing always
+
+      - name: Publish package distributions to GitHub Releases
+        id: github-release
+        if: env.REVISION != env.PREVIOUS_REVISION
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: "body.md"
+          tag_name: v${{ steps.cz.outputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: dist/*
