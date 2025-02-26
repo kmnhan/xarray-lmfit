@@ -1,3 +1,5 @@
+import contextlib
+
 import lmfit
 import numpy as np
 import pytest
@@ -91,19 +93,32 @@ def test_ds_modelfit(
     fit_test_darr: xr.DataArray,
     fit_expected_darr: xr.DataArray,
 ) -> None:
+    warn_ctx = (
+        pytest.warns(
+            UserWarning,
+            match="The input Dataset is chunked. "
+            "Parallel fitting will not offer any performance benefits.",
+        )
+        if (use_dask and parallel)
+        else contextlib.nullcontext()
+    )
     fit_test_ds = xr.Dataset({"test0": fit_test_darr, "test1": fit_test_darr})
 
     # Tests are adapted from xarray's curvefit tests
     if use_dask:
         fit_test_ds = fit_test_ds.chunk({"x": 1})
 
+    parallel_kw = {} if not parallel else {"n_jobs": 1}
+
     # Params as dictionary
-    fit = fit_test_ds.xlm.modelfit(
-        coords=[fit_test_ds.t],
-        model=exp_decay_model,
-        params={"n0": 4, "tau": {"min": 2, "max": 6}},
-        parallel=parallel,
-    )
+    with warn_ctx:
+        fit = fit_test_ds.xlm.modelfit(
+            coords=[fit_test_ds.t],
+            model=exp_decay_model,
+            params={"n0": 4, "tau": {"min": 2, "max": 6}},
+            parallel=parallel,
+            parallel_kw=parallel_kw,
+        )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
     )
@@ -112,12 +127,14 @@ def test_ds_modelfit(
     )
 
     # Params as lmfit.Parameters
-    fit = fit_test_ds.xlm.modelfit(
-        coords=[fit_test_ds.t],
-        model=exp_decay_model,
-        params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
-        parallel=parallel,
-    )
+    with warn_ctx:
+        fit = fit_test_ds.xlm.modelfit(
+            coords=[fit_test_ds.t],
+            model=exp_decay_model,
+            params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
+            parallel=parallel,
+            parallel_kw=parallel_kw,
+        )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
     )
@@ -135,6 +152,7 @@ def test_ds_modelfit(
         reduce_dims="x",
         params={"a": {"value": 0.3, "vary": True}},
         parallel=parallel,
+        parallel_kw=parallel_kw,
     )
 
     assert "a" in fit.param
