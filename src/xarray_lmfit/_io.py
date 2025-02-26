@@ -45,11 +45,12 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
     :meth:`load_fit <xarray_lmfit.load_fit>` : Load fit results from a netCDF file.
 
     """
-    if "modelfit_results" in result_ds:
-        result_ds["modelfit_results"] = xr.apply_ufunc(
-            _dumps_result, result_ds["modelfit_results"], vectorize=True
+    ds = result_ds.copy()
+    if "modelfit_results" in ds:
+        ds["modelfit_results"] = xr.apply_ufunc(
+            _dumps_result, ds["modelfit_results"], vectorize=True
         )
-    result_ds.to_netcdf(path, **kwargs)
+    ds.to_netcdf(path, **kwargs)
 
 
 def load_fit(
