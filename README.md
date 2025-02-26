@@ -1,5 +1,6 @@
 # xarray-lmfit
 
+[![codecov](https://codecov.io/gh/kmnhan/xarray-lmfit/graph/badge.svg?token=B16DX6OZ0Q)](https://codecov.io/gh/kmnhan/xarray-lmfit)
 [![Documentation Status](https://img.shields.io/readthedocs/xarray-lmfit?logo=readthedocs&logoColor=white)](https://xarray-lmfit.readthedocs.io/)
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/kmnhan/xarray-lmfit/main.svg)](https://results.pre-commit.ci/latest/github/kmnhan/xarray-lmfit/main)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
