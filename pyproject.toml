@@ -196,7 +196,6 @@ filterwarnings = ["always"]
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/_deprecated/*"]
 concurrency = ["multiprocessing", "thread"]
 
 [tool.mypy]

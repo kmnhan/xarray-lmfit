@@ -83,7 +83,7 @@ def test_da_modelfit(
 
 
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
-@pytest.mark.parametrize("parallel", [True, False], ids=["serial", "parallel"])
+@pytest.mark.parametrize("parallel", [True, False], ids=["parallel", "serial"])
 def test_ds_modelfit(
     use_dask: bool,
     parallel: bool,
