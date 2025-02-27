@@ -6,6 +6,8 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+
 import sphinx_autosummary_accessors
 
 import xarray_lmfit
@@ -32,12 +34,19 @@ extensions = [
     "nbsphinx",
 ]
 
+if os.getenv("READTHEDOCS"):
+    extensions.append("sphinxcontrib.googleanalytics")
+    googleanalytics_id = "G-FJ853S5HV2"
+    html_baseurl = "https://xarray-lmfit.readthedocs.io/stable/"  # Canonical URL
+
+
 templates_path = ["_templates", sphinx_autosummary_accessors.templates_path]
 exclude_patterns = []
 
 master_doc = "index"
 suffix = ".rst"
 default_role = "obj"
+highlight_language = "python3"
 
 # -- Autosummary and autodoc settings ----------------------------------------
 
@@ -101,5 +110,22 @@ nbsphinx_execute_arguments = ["--InlineBackend.figure_formats={'svg', 'pdf'}"]
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "sphinx_book_theme"
 pygments_dark_style = "monokai"
+html_theme = "sphinx_book_theme"
+html_theme_options = {
+    "repository_url": "https://github.com/kmnhan/xarray-lmfit",
+    "use_repository_button": True,
+    "use_source_button": True,
+    "use_edit_page_button": True,
+    "use_issues_button": True,
+    "path_to_docs": "docs/source",
+    "repository_branch": "main",
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/kmnhan/xarray-lmfit",
+            "icon": "fa-brands fa-square-github",
+            "type": "fontawesome",
+        },
+    ],
+}
