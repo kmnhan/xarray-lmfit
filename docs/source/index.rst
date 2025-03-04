@@ -22,7 +22,7 @@ With xarray-lmfit, `lmfit models <https://lmfit.github.io/lmfit-py/model.html>`_
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Contents
 
    getting-started
    user-guide/index
