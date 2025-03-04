@@ -35,6 +35,7 @@ extensions = [
 ]
 myst_enable_extensions = ["colon_fence"]
 nb_execution_mode = "cache"
+nb_execution_timeout = 1200
 
 if os.getenv("READTHEDOCS"):
     extensions.append("sphinxcontrib.googleanalytics")
