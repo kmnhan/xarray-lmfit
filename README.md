@@ -2,6 +2,7 @@
 
 [![Supported Python Versions](https://img.shields.io/pypi/pyversions/xarray-lmfit?logo=python&logoColor=white)](https://pypi.org/project/xarray-lmfit/)
 [![PyPi](https://img.shields.io/pypi/v/xarray-lmfit?logo=pypi&logoColor=white)](https://pypi.org/project/xarray-lmfit/)
+[![Conda Version](https://img.shields.io/conda/vn/conda-forge/xarray-lmfit?logo=condaforge&logoColor=white)](https://anaconda.org/conda-forge/xarray-lmfit)
 [![Workflow Status](https://img.shields.io/github/actions/workflow/status/kmnhan/xarray-lmfit/ci.yml?logo=github&label=tests)](https://github.com/kmnhan/xarray-lmfit/actions/workflows/ci.yml)
 [![Documentation Status](https://img.shields.io/readthedocs/xarray-lmfit?logo=readthedocs&logoColor=white)](https://xarray-lmfit.readthedocs.io/)
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/kmnhan/xarray-lmfit/main.svg)](https://results.pre-commit.ci/latest/github/kmnhan/xarray-lmfit/main)
@@ -22,12 +23,10 @@ Install via pip:
 pip install xarray-lmfit
 ```
 
-Or build from source by cloning the repository:
+Install via conda:
 
 ```bash
-git clone https://github.com/kmnhan/xarray-lmfit.git
-cd xarray-lmfit
-pip install .
+conda install -c conda-forge xarray-lmfit
 ```
 
 ## Usage
