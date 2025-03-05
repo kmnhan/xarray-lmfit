@@ -31,8 +31,11 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_autosummary_accessors",
-    "nbsphinx",
+    "myst_nb",
 ]
+myst_enable_extensions = ["colon_fence"]
+nb_execution_mode = "cache"
+nb_execution_timeout = 1200
 
 if os.getenv("READTHEDOCS"):
     extensions.append("sphinxcontrib.googleanalytics")
@@ -45,7 +48,6 @@ exclude_patterns = []
 
 master_doc = "index"
 suffix = ".rst"
-default_role = "obj"
 highlight_language = "python3"
 
 # -- Autosummary and autodoc settings ----------------------------------------

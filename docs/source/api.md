@@ -1,22 +1,23 @@
+# API reference
+
+```{eval-rst}
 .. currentmodule:: xarray_lmfit
+```
 
-#############
-API reference
-#############
+## Top-level functions
 
-Top-level functions
-===================
-
+```{eval-rst}
 .. autosummary::
    :toctree: generated
 
    save_fit
    load_fit
+```
 
+## Fitting
+
+```{eval-rst}
 .. currentmodule:: xarray
-
-Fitting
-=======
 
 .. autosummary::
    :toctree: accessors
@@ -24,6 +25,6 @@ Fitting
 
    Dataset.xlm.modelfit
    DataArray.xlm.modelfit
+```
 
-Visualization
-=============
+## Visualization

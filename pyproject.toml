@@ -40,7 +40,7 @@ dev = [
 ]
 docs = [
     "matplotlib>=3.10.0",
-    "nbsphinx>=0.9.6",
+    "myst-nb>=1.2.0",
     "sphinx<8.2.0",
     "sphinx-autosummary-accessors>=2023.4.0",
     "sphinx-book-theme>=1.1.3",
