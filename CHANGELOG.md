@@ -1,5 +1,9 @@
 ## Unreleased
 
+### 🐞 Bug Fixes
+
+- lower numpy min version to 1.26.0 ([a9b4928](https://github.com/kmnhan/xarray-lmfit/commit/a9b492847445eac3bfe4a206eb60d06213111dba))
+
 ## v0.1.1 (2025-02-27)
 
 ### 🐞 Bug Fixes
