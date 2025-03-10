@@ -77,7 +77,12 @@ napoleon_use_param = False
 napoleon_use_rtype = True
 napoleon_preprocess_types = True
 napoleon_type_aliases = {
-    "ndarray": "numpy.ndarray",
+    "Hashable": ":obj:`Hashable <collections.abc.Hashable>`",
+    "Mapping": ":obj:`Mapping <collections.abc.Mapping>`",
+    "Sequence": ":obj:`Sequence <collections.abc.Sequence>`",
+    "Iterable": ":obj:`Iterable <collections.abc.Iterable>`",
+    "Callable": ":obj:`Callable <collections.abc.Callable>`",
+    "ndarray": ":class:`numpy.ndarray`",
     "DataArray": ":class:`DataArray <xarray.DataArray>`",
     "Dataset": ":class:`Dataset <xarray.Dataset>`",
     "DataTree": ":class:`DataTree <xarray.DataTree>`",
@@ -85,8 +90,8 @@ napoleon_type_aliases = {
     "numpy.float32": "float32",
     "np.float64": "float64",
     "numpy.float64": "float64",
-    "array-like": "`array-like <numpy.typing.ArrayLike>`",
-    "path-like": "`path-like <os.PathLike>`",
+    "array-like": ":obj:`array-like <numpy.typing.ArrayLike>`",
+    "path-like": ":obj:`path-like <os.PathLike>`",
     "lmfit.Parameters": ":class:`lmfit.Parameters <lmfit.parameter.Parameters>`",
     "lmfit.Model": ":class:`lmfit.Model <lmfit.model.Model>`",
 }

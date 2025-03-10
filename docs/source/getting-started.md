@@ -33,4 +33,4 @@ The import name is `xarray_lmfit` (with an underscore `_`), not `xarray-lmfit`.
 
 :::
 
-If the installation was successful, you should see the version number of `xarray-lmfit` printed to the console.
+If the installation was successful, you should see the version number printed to the console.

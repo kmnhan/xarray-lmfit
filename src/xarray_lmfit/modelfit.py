@@ -161,8 +161,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         params : lmfit.Parameters, dict-like, DataArray or Dataset, optional
             Optional input parameters to the fit.
 
-            - If a `lmfit.Parameters <lmfit.parameter.Parameters>` object, it will be
-              used for all fits.
+            - If a :class:`lmfit.Parameters <lmfit.parameter.Parameters>` object, it
+              will be used for all fits.
 
             - If a dict-like object, it must be structured like keyword arguments to
               :func:`lmfit.create_params <lmfit.parameter.create_params>`.
@@ -170,9 +170,10 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
               Additionally, each value of the dictionary may also be a DataArray, which
               will be broadcasted appropriately.
 
-            - If a DataArray, each entry must be a dict-like object, a `lmfit.Parameters
-              <lmfit.parameter.Parameters>` object, or a JSON string created with
-              :meth:`lmfit.Parameters.dumps <lmfit.parameter.Parameters.dumps>`.
+            - If a DataArray, each entry must be a dict-like object, a
+              :class:`lmfit.Parameters <lmfit.parameter.Parameters>` object, or a JSON
+              string created with :meth:`lmfit.Parameters.dumps
+              <lmfit.parameter.Parameters.dumps>`.
 
             - If a Dataset, the name of the data variables in the Dataset must match the
               name of the data variables in the calling object, and each data variable
