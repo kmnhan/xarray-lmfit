@@ -1,6 +1,6 @@
 [project]
 name = "xarray-lmfit"
-version = "0.1.2"
+version = "0.1.3"
 description = "Fit lmfit models to xarray objects."
 readme = "README.md"
 authors = [{ name = "Kimoon Han", email = "khan@kaist.ac.kr" }]
