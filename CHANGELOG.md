@@ -1,5 +1,9 @@
 ## Unreleased
 
+### 🐞 Bug Fixes
+
+- allow lower versions of dependencies ([139df09](https://github.com/kmnhan/xarray-lmfit/commit/139df09c938795c9af69ddb1e15db7eba7f2f112))
+
 ## v0.1.2 (2025-03-08)
 
 ### 🐞 Bug Fixes
