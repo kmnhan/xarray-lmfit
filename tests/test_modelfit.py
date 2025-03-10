@@ -55,14 +55,18 @@ def test_da_modelfit(
 
 
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
-@pytest.mark.parametrize("parallel", [True, False], ids=["parallel", "serial"])
+@pytest.mark.parametrize(
+    "parallel_kind", ["list", "generator_unordered", "generator", "serial"]
+)
 def test_ds_modelfit(
     use_dask: bool,
-    parallel: bool,
+    parallel_kind: str,
     exp_decay_model: lmfit.Model,
     fit_test_darr: xr.DataArray,
     fit_expected_darr: xr.DataArray,
 ) -> None:
+    parallel: bool = parallel_kind != "serial"
+
     warn_ctx = (
         pytest.warns(
             UserWarning,
@@ -78,7 +82,7 @@ def test_ds_modelfit(
     if use_dask:
         fit_test_ds = fit_test_ds.chunk({"x": 1})
 
-    parallel_kw = {} if not parallel else {"n_jobs": 1}
+    parallel_kw = {} if not parallel else {"n_jobs": 1, "return_as": parallel_kind}
 
     # Params as dictionary
     with warn_ctx:
