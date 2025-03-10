@@ -153,9 +153,9 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             :class:`lmfit.Model <lmfit.model.Model>`.
         reduce_dims : str, Iterable of Hashable or None, optional
             Additional dimension(s) over which to aggregate while fitting. For example,
-            calling `ds.modelfit(coords='time', reduce_dims=['lat', 'lon'], ...)` will
-            aggregate all lat and lon points and fit the specified function along the
-            time dimension.
+            calling `ds.xlm.modelfit(coords='time', reduce_dims=['lat', 'lon'], ...)`
+            will aggregate all lat and lon points and fit the specified function along
+            the time dimension.
         skipna : bool, default: True
             Whether to skip missing values when fitting. Default is True.
         params : lmfit.Parameters, dict-like, DataArray or Dataset, optional
