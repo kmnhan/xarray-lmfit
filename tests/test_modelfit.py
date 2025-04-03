@@ -270,7 +270,7 @@ def test_modelfit_expr() -> None:
             "'p1_sigma', 'slope', 'intercept']\nfrom the model. "
             "This may be caused by providing new parameters that are not present "
             "in the model to the initial guess. Provide the names explicitly with "
-            "the `param_names` argument to ` modelfit`."
+            "the `param_names` argument to `modelfit`."
         ),
     ):
         darr.xlm.modelfit(
