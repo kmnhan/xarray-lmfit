@@ -578,7 +578,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             model.make_params()
 
             # Get the parameter names (assume no expressions)
-            param_names: list[str] = model.param_names
+            param_names = model.param_names
 
         # Define the statistics to extract from the fit result
         stat_names = [
@@ -609,7 +609,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         if parallel is None:
             parallel = (not is_dask) and (len(self._obj.data_vars) > 200)
 
-        tqdm_kw = {
+        tqdm_kw: dict[str, typing.Any] = {
             "desc": "Fitting",
             "total": len(self._obj.data_vars),
             "disable": not progress,
