@@ -1,4 +1,5 @@
 import contextlib
+import re
 
 import lmfit
 import numpy as np
@@ -6,6 +7,12 @@ import pytest
 import xarray as xr
 
 import xarray_lmfit  # noqa: F401
+
+
+def lorentzian(x, amplitude, center, sigma):
+    return (amplitude / (1 + ((1.0 * x - center) / max(sigma, 1e-15)) ** 2)) / max(
+        np.pi * sigma, 1e-15
+    )
 
 
 def power(t, a):
@@ -227,3 +234,83 @@ def test_modelfit_params(use_dask: bool) -> None:
         },
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, expected, atol=1e-8)
+
+
+def test_modelfit_expr() -> None:
+    # Generate 2 lorentzian peaks on linear bkg and add poisson noise
+    xval = np.linspace(-1, 1, 250)
+
+    yval = 2 * xval + 4
+    yval += lorentzian(xval, -0.5, 0.05, 10)
+    yval += lorentzian(xval, 0.5, 0.05, 10)
+    yval /= yval.sum()
+
+    # Add noise
+    npts = 100000
+    rng = np.random.default_rng(1)
+    # yerr = 1 / np.sqrt(npts)
+    yval = rng.poisson(yval * npts).astype(float)
+
+    # lmfit model
+    model = (
+        lmfit.models.LorentzianModel(prefix="p0_")
+        + lmfit.models.LorentzianModel(prefix="p1_")
+        + lmfit.models.LinearModel()
+    )
+
+    darr = xr.DataArray(yval, dims=("x",), coords={"x": xval})
+
+    with pytest.raises(
+        RuntimeError,
+        match=re.escape(
+            "Parameters in fit result are:\n    "
+            "['p0_amplitude', 'p0_sigma', 'p1_amplitude', 'p1_center', 'p1_sigma', "
+            "'slope', 'intercept', 'p01_delta']\nbut inferred:\n    "
+            "['p0_amplitude', 'p0_center', 'p0_sigma', 'p1_amplitude', 'p1_center', "
+            "'p1_sigma', 'slope', 'intercept']\nfrom the model. "
+            "This may be caused by providing new parameters that are not present "
+            "in the model to the initial guess. Provide the names explicitly with "
+            "the `param_names` argument to ` modelfit`."
+        ),
+    ):
+        darr.xlm.modelfit(
+            coords=[darr.x],
+            model=model,
+            params={
+                "p0_center": {"expr": "p1_center - p01_delta"},
+                "p0_sigma": {"value": 0.05, "min": 0},
+                "p0_amplitude": {"value": 10, "min": 0},
+                "p1_center": 0.5,
+                "p1_sigma": {"value": 0.05, "min": 0},
+                "p1_amplitude": {"value": 10, "min": 0},
+                "p01_delta": {"value": 1, "min": 0},
+                "slope": {"value": 2, "min": 0},
+                "intercept": 4,
+            },
+        )
+
+    darr.xlm.modelfit(
+        coords=[darr.x],
+        model=model,
+        params={
+            "p0_center": {"expr": "p1_center - p01_delta"},
+            "p0_sigma": {"value": 0.05, "min": 0},
+            "p0_amplitude": {"value": 10, "min": 0},
+            "p1_center": 0.5,
+            "p1_sigma": {"value": 0.05, "min": 0},
+            "p1_amplitude": {"value": 10, "min": 0},
+            "p01_delta": {"value": 1, "min": 0},
+            "slope": {"value": 2, "min": 0},
+            "intercept": 4,
+        },
+        param_names=[
+            "p0_amplitude",
+            "p0_sigma",
+            "p1_amplitude",
+            "p1_center",
+            "p1_sigma",
+            "slope",
+            "intercept",
+            "p01_delta",
+        ],
+    )
