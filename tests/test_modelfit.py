@@ -172,6 +172,20 @@ def test_modelfit_params(use_dask: bool) -> None:
     fit = da.xlm.modelfit(coords=[da.t], model=lmfit.Model(sine), params=params)
     np.testing.assert_allclose(fit.modelfit_coefficients, expected)
 
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Parameter 'z' was not found in the fit results. "
+            "Check the model and parameter names."
+        ),
+    ):
+        da.xlm.modelfit(
+            coords=[da.t],
+            model=lmfit.Model(sine),
+            params=params,
+            param_names=["a", "f", "z"],
+        ).compute()
+
     # params as mixed dictionary
     fit = da.xlm.modelfit(
         coords=[da.t],
@@ -260,17 +274,12 @@ def test_modelfit_expr() -> None:
 
     darr = xr.DataArray(yval, dims=("x",), coords={"x": xval})
 
-    with pytest.raises(
-        RuntimeError,
+    with pytest.warns(
+        UserWarning,
         match=re.escape(
-            "Parameters in fit result are:\n    "
-            "['p0_amplitude', 'p0_sigma', 'p1_amplitude', 'p1_center', 'p1_sigma', "
-            "'slope', 'intercept', 'p01_delta']\nbut inferred:\n    "
-            "['p0_amplitude', 'p0_center', 'p0_sigma', 'p1_amplitude', 'p1_center', "
-            "'p1_sigma', 'slope', 'intercept']\nfrom the model. "
-            "This may be caused by providing new parameters that are not present "
-            "in the model to the initial guess. Provide the names explicitly with "
-            "the `param_names` argument to `modelfit`."
+            "Parameter 'p01_delta' is a varying "
+            "parameter, but is not included in the results. "
+            "Consider providing `param_names` manually."
         ),
     ):
         darr.xlm.modelfit(

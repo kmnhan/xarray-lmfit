@@ -11,6 +11,7 @@ from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 import joblib
 import lmfit
 import numpy as np
+import numpy.typing as npt
 import tqdm.auto as tqdm
 import xarray as xr
 from xarray.core.dataarray import _THIS_ARRAY
@@ -132,7 +133,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         n_params = len(param_names)
         n_stats = len(stat_names)
 
-        def _wrapper(Y, *args, **kwargs):
+        def _wrapper(Y: npt.NDArray, *args, **kwargs):
             # Wrap Model.fit with raveled coordinates and pointwise NaN handling
             # *args contains:
             #   - the coordinates
@@ -152,11 +153,11 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 initial_params.update(init_params_)
 
             elif isinstance(init_params_, Mapping):
-                for p, v in init_params_.items():
+                for pname, v in init_params_.items():
                     if isinstance(v, Mapping):
-                        initial_params[p].set(**v)
+                        initial_params[pname].set(**v)
                     else:
-                        initial_params[p].set(value=v)
+                        initial_params[pname].set(value=v)
 
             popt = np.full([n_params], np.nan)
             perr = np.full([n_params], np.nan)
@@ -227,24 +228,14 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 return popt, perr, pcov, stats, data, best, modres
             else:
                 if modres.success:
-                    # var_names are determined from params in Minimizer.perpare_fit()
-                    # and are not guaranteed to be the same as the model parameters
-                    # (e.g. when using expressions)
-                    if set(modres.var_names) != set(param_names):
-                        raise RuntimeError(
-                            "Parameters in fit result are:\n"
-                            f"    {modres.var_names}\n"
-                            "but inferred:\n"
-                            f"    {param_names}\n"
-                            "from the model. This may be caused by providing new "
-                            "parameters that are not present in the model to the "
-                            "initial guess. Provide the names explicitly with the "
-                            "`param_names` argument to `modelfit`."
-                        )
-
                     popt_list, perr_list = [], []
                     for name in param_names:
-                        p = modres.params[name]
+                        if name not in modres.params:
+                            raise ValueError(
+                                f"Parameter '{name}' was not found in the fit results. "
+                                "Check the model and parameter names."
+                            )
+                        p: lmfit.model.Parameter = modres.params[name]
                         popt_list.append(p.value if p.value is not None else np.nan)
                         perr_list.append(p.stderr if p.stderr is not None else np.nan)
 
@@ -262,10 +253,18 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                     if modres.covar is not None:
                         var_names = modres.var_names
                         for vi in range(modres.nvarys):
-                            i = param_names.index(var_names[vi])
-                            for vj in range(modres.nvarys):
-                                j = param_names.index(var_names[vj])
-                                pcov[i, j] = modres.covar[vi, vj]
+                            if var_names[vi] not in param_names:
+                                emit_user_level_warning(
+                                    f"Parameter '{var_names[vi]}' is a varying "
+                                    "parameter, but is not included in the results. "
+                                    "Consider providing `param_names` manually."
+                                )
+                            else:
+                                i = param_names.index(var_names[vi])
+                                for vj in range(modres.nvarys):
+                                    if var_names[vj] in param_names:
+                                        j = param_names.index(var_names[vj])
+                                        pcov[i, j] = modres.covar[vi, vj]
 
                     best.flat[mask] = modres.best_fit
 
@@ -468,12 +467,10 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             output dataset. If `True`, the result will be stored in a variable named
             `[var]_modelfit_results`.
         param_names : list of str, optional
-            List of parameter names in the fit results. If not provided, the parameter
-            names will be taken from the model. This is useful when adding new
-            parameters to the initial guess that cannot be inferred from the model,
-            which happens often when using expressions. In this case, the user must
-            explicitly provide the parameter names. The names can be taken from the
-            ``var_names`` attribute of the :class:`lmfit.model.ModelResult` object.
+            List of parameter names to include in the output dataset. If not provided,
+            defaults to :attr:`lmfit.Model.param_names <lmfit.model.Model.param_names>`
+            (after calling :meth:`lmfit.Model.make_params
+            <lmfit.model.Model.make_params>`).
         **kwargs : optional
             Additional keyword arguments to passed to :meth:`lmfit.Model.fit
             <lmfit.model.Model.fit>`.
