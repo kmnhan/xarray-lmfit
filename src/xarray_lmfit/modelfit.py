@@ -167,7 +167,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             best = np.full_like(data, np.nan)
 
             x = np.vstack([c.ravel() for c in coords__])
-            y = Y.ravel()
+            y: npt.NDArray = Y.ravel()
 
             if skipna:
                 mask = np.all([np.any(~np.isnan(x), axis=0), ~np.isnan(y)], axis=0)
