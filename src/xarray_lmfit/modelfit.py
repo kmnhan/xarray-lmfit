@@ -45,7 +45,7 @@ def _broadcast_dict_values(d: dict[str, typing.Any]) -> dict[str, xr.DataArray]:
     d = dict(
         zip(to_broadcast.keys(), xr.broadcast(*to_broadcast.values()), strict=True)
     )
-    return typing.cast(dict[str, xr.DataArray], d)
+    return typing.cast("dict[str, xr.DataArray]", d)
 
 
 def _concat_along_keys(d: dict[str, xr.DataArray], dim_name: str) -> xr.DataArray:
