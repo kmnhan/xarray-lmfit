@@ -11,6 +11,7 @@ from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 import joblib
 import lmfit
 import numpy as np
+import numpy.typing as npt
 import tqdm.auto as tqdm
 import xarray as xr
 from xarray.core.dataarray import _THIS_ARRAY
@@ -115,6 +116,259 @@ class _ParametersWrapper:
 class ModelFitDatasetAccessor(XLMDatasetAccessor):
     """`xarray.Dataset.modelfit` accessor for fitting lmfit models."""
 
+    def _define_wrapper(
+        self,
+        model: lmfit.Model,
+        param_names: list[str],
+        stat_names: list[str],
+        n_coords: int,
+        skipna: bool,
+        guess: bool,
+        errors: typing.Literal["raise", "ignore"],
+    ):
+        """Define a wrapper function for the model fitting.
+
+        This is used with :func:`xarray.apply_ufunc` to fit the model to the data.
+        """
+        n_params = len(param_names)
+        n_stats = len(stat_names)
+
+        def _wrapper(Y: npt.NDArray, *args, **kwargs):
+            # Wrap Model.fit with raveled coordinates and pointwise NaN handling
+            # *args contains:
+            #   - the coordinates
+            #   - parameters object
+            coords__ = args[:n_coords]
+            init_params_ = args[n_coords]
+
+            initial_params = lmfit.create_params() if guess else model.make_params()
+
+            if isinstance(init_params_, _ParametersWrapper):
+                initial_params.update(init_params_.params)
+
+            elif isinstance(init_params_, str):
+                initial_params.update(lmfit.Parameters().loads(init_params_))
+
+            elif isinstance(init_params_, lmfit.Parameters):
+                initial_params.update(init_params_)
+
+            elif isinstance(init_params_, Mapping):
+                for pname, v in init_params_.items():
+                    if isinstance(v, Mapping):
+                        initial_params[pname].set(**v)
+                    else:
+                        initial_params[pname].set(value=v)
+
+            popt = np.full([n_params], np.nan)
+            perr = np.full([n_params], np.nan)
+            pcov = np.full([n_params, n_params], np.nan)
+            stats = np.full([n_stats], np.nan)
+            data = Y.copy()
+            best = np.full_like(data, np.nan)
+
+            x = np.vstack([c.ravel() for c in coords__])
+            y: npt.NDArray = Y.ravel()
+
+            if skipna:
+                mask = np.all([np.any(~np.isnan(x), axis=0), ~np.isnan(y)], axis=0)
+                x = x[:, mask]
+                y = y[mask]
+                if not len(y):
+                    # No data to fit
+                    modres = lmfit.model.ModelResult(model, initial_params, data=y)
+                    modres.success = False
+                    return popt, perr, pcov, stats, data, best, modres
+            else:
+                mask = np.full_like(y, True)
+
+            x = np.squeeze(x)
+
+            if model.independent_vars is not None:
+                if n_coords == 1:
+                    indep_var_kwargs = {model.independent_vars[0]: x}
+                    if len(model.independent_vars) == 2:
+                        # Y-dependent data, like background models
+                        indep_var_kwargs[model.independent_vars[1]] = y
+                else:
+                    indep_var_kwargs = dict(
+                        zip(model.independent_vars[:n_coords], x, strict=True)
+                    )
+            else:
+                raise ValueError("Independent variables not defined in model")
+
+            if guess:
+                if isinstance(model, lmfit.model.CompositeModel):
+                    guessed_params = model.make_params()
+                    for comp in model.components:
+                        with contextlib.suppress(NotImplementedError):
+                            guessed_params.update(comp.guess(y, **indep_var_kwargs))
+                    # Given parameters must override guessed parameters
+                    initial_params = guessed_params.update(initial_params)
+
+                else:
+                    try:
+                        initial_params = model.guess(y, **indep_var_kwargs).update(
+                            initial_params
+                        )
+                    except NotImplementedError:
+                        emit_user_level_warning(
+                            f"`guess` is not implemented for {model}, "
+                            "using supplied initial parameters"
+                        )
+                        initial_params = model.make_params().update(initial_params)
+            try:
+                modres = model.fit(
+                    y, **indep_var_kwargs, params=initial_params, **kwargs
+                )
+            except ValueError:
+                if errors == "raise":
+                    raise
+                modres = lmfit.model.ModelResult(model, initial_params, data=y)
+                modres.success = False
+                return popt, perr, pcov, stats, data, best, modres
+            else:
+                if modres.success:
+                    popt_list, perr_list = [], []
+                    for name in param_names:
+                        if name not in modres.params:
+                            raise ValueError(
+                                f"Parameter '{name}' was not found in the fit results. "
+                                "Check the model and parameter names."
+                            )
+                        p: lmfit.model.Parameter = modres.params[name]
+                        popt_list.append(p.value if p.value is not None else np.nan)
+                        perr_list.append(p.stderr if p.stderr is not None else np.nan)
+
+                    popt, perr = np.array(popt_list), np.array(perr_list)
+
+                    stats = np.array(
+                        [
+                            s if s is not None else np.nan
+                            for s in [getattr(modres, s) for s in stat_names]
+                        ]
+                    )
+
+                    # Fill in covariance matrix entries, entries for non-varying
+                    # parameters are left as NaN
+                    if modres.covar is not None:
+                        var_names = modres.var_names
+                        for vi in range(modres.nvarys):
+                            if var_names[vi] not in param_names:
+                                emit_user_level_warning(
+                                    f"Parameter '{var_names[vi]}' is a varying "
+                                    "parameter, but is not included in the results. "
+                                    "Consider providing `param_names` manually."
+                                )
+                            else:
+                                i = param_names.index(var_names[vi])
+                                for vj in range(modres.nvarys):
+                                    if var_names[vj] in param_names:
+                                        j = param_names.index(var_names[vj])
+                                        pcov[i, j] = modres.covar[vi, vj]
+
+                    best.flat[mask] = modres.best_fit
+
+            return popt, perr, pcov, stats, data, best, modres
+
+        return _wrapper
+
+    def _define_output_wrapper(
+        self,
+        model: lmfit.Model,
+        params: xr.Dataset | xr.DataArray | _ParametersWrapper,
+        reduce_dims_: list[Hashable],
+        coords_,
+        param_names: list[str],
+        stat_names: list[str],
+        output_result: bool,
+        skipna: bool,
+        guess: bool,
+        errors: typing.Literal["raise", "ignore"],
+        **kwargs,
+    ) -> typing.Callable:
+        _wrapper = self._define_wrapper(
+            model=model,
+            param_names=param_names,
+            stat_names=stat_names,
+            n_coords=len(coords_),
+            skipna=skipna,
+            guess=guess,
+            errors=errors,
+        )
+
+        n_params = len(param_names)
+        n_stats = len(stat_names)
+
+        def _output_wrapper(name, da, out=None) -> dict:
+            name = "" if name is _THIS_ARRAY else f"{name!s}_"
+
+            if out is None:
+                out = {}
+
+            input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
+            input_core_dims.extend([[] for _ in range(1)])  # core_dims for parameters
+
+            if not isinstance(params, xr.Dataset):
+                params_to_apply = params
+            else:
+                try:
+                    params_to_apply = params[name.rstrip("_")]
+                except KeyError:
+                    params_to_apply = params[float(name.rstrip("_"))]
+
+            popt, perr, pcov, stats, data, best, modres = xr.apply_ufunc(
+                _wrapper,
+                da,
+                *coords_,
+                params_to_apply,
+                vectorize=True,
+                dask="parallelized",
+                input_core_dims=input_core_dims,
+                output_core_dims=[
+                    ["param"],
+                    ["param"],
+                    ["cov_i", "cov_j"],
+                    ["fit_stat"],
+                    reduce_dims_,
+                    reduce_dims_,
+                    [],
+                ],
+                dask_gufunc_kwargs={
+                    "output_sizes": {
+                        "param": n_params,
+                        "fit_stat": n_stats,
+                        "cov_i": n_params,
+                        "cov_j": n_params,
+                    }
+                    | {dim: self._obj.coords[dim].size for dim in reduce_dims_}
+                },
+                output_dtypes=(
+                    np.float64,
+                    np.float64,
+                    np.float64,
+                    np.float64,
+                    np.float64,
+                    np.float64,
+                    lmfit.model.ModelResult,
+                ),
+                exclude_dims=set(reduce_dims_),
+                kwargs=kwargs,
+            )
+
+            if output_result:
+                out[name + "modelfit_results"] = modres
+
+            out[name + "modelfit_coefficients"] = popt
+            out[name + "modelfit_stderr"] = perr
+            out[name + "modelfit_covariance"] = pcov
+            out[name + "modelfit_stats"] = stats
+            out[name + "modelfit_data"] = data
+            out[name + "modelfit_best_fit"] = best
+
+            return out
+
+        return _output_wrapper
+
     def __call__(
         self,
         coords: str | xr.DataArray | Iterable[str | xr.DataArray],
@@ -133,6 +387,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         parallel_kw: dict[str, typing.Any] | None = None,
         progress: bool = False,
         output_result: bool = True,
+        param_names: list[str] | None = None,
         **kwargs,
     ) -> xr.Dataset:
         """Curve fitting optimization for arbitrary models.
@@ -211,6 +466,11 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             Whether to include the full :class:`lmfit.model.ModelResult` object in the
             output dataset. If `True`, the result will be stored in a variable named
             `[var]_modelfit_results`.
+        param_names : list of str, optional
+            List of parameter names to include in the output dataset. If not provided,
+            defaults to :attr:`lmfit.Model.param_names <lmfit.model.Model.param_names>`
+            (after calling :meth:`lmfit.Model.make_params
+            <lmfit.model.Model.make_params>`).
         **kwargs : optional
             Additional keyword arguments to passed to :meth:`lmfit.Model.fit
             <lmfit.model.Model.fit>`.
@@ -309,14 +569,13 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         coords_ = [
             coord.broadcast_like(self._obj, exclude=preserved_dims) for coord in coords_
         ]
-        n_coords = len(coords_)
 
-        # Call make_params before getting parameter names as it may add param hints
-        model.make_params()
+        if param_names is None:
+            # Call make_params before getting parameter names as it may add param hints
+            model.make_params()
 
-        # Get the parameter names
-        param_names: list[str] = model.param_names
-        n_params = len(param_names)
+            # Get the parameter names (assume no expressions)
+            param_names = model.param_names
 
         # Define the statistics to extract from the fit result
         stat_names = [
@@ -329,203 +588,25 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             "aic",
             "bic",
         ]
-        n_stats = len(stat_names)
 
-        def _wrapper(Y, *args, **kwargs):
-            # Wrap Model.fit with raveled coordinates and pointwise NaN handling
-            # *args contains:
-            #   - the coordinates
-            #   - parameters object
-            coords__ = args[:n_coords]
-            init_params_ = args[n_coords]
-
-            initial_params = lmfit.create_params() if guess else model.make_params()
-
-            if isinstance(init_params_, _ParametersWrapper):
-                initial_params.update(init_params_.params)
-
-            elif isinstance(init_params_, str):
-                initial_params.update(lmfit.Parameters().loads(init_params_))
-
-            elif isinstance(init_params_, lmfit.Parameters):
-                initial_params.update(init_params_)
-
-            elif isinstance(init_params_, Mapping):
-                for p, v in init_params_.items():
-                    if isinstance(v, Mapping):
-                        initial_params[p].set(**v)
-                    else:
-                        initial_params[p].set(value=v)
-
-            popt = np.full([n_params], np.nan)
-            perr = np.full([n_params], np.nan)
-            pcov = np.full([n_params, n_params], np.nan)
-            stats = np.full([n_stats], np.nan)
-            data = Y.copy()
-            best = np.full_like(data, np.nan)
-
-            x = np.vstack([c.ravel() for c in coords__])
-            y = Y.ravel()
-
-            if skipna:
-                mask = np.all([np.any(~np.isnan(x), axis=0), ~np.isnan(y)], axis=0)
-                x = x[:, mask]
-                y = y[mask]
-                if not len(y):
-                    modres = lmfit.model.ModelResult(model, model.make_params(), data=y)
-                    modres.success = False
-                    return popt, perr, pcov, stats, data, best, modres
-            else:
-                mask = np.full_like(y, True)
-
-            x = np.squeeze(x)
-
-            if model.independent_vars is not None:
-                if n_coords == 1:
-                    indep_var_kwargs = {model.independent_vars[0]: x}
-                    if len(model.independent_vars) == 2:
-                        # Y-dependent data, like background models
-                        indep_var_kwargs[model.independent_vars[1]] = y
-                else:
-                    indep_var_kwargs = dict(
-                        zip(model.independent_vars[:n_coords], x, strict=True)
-                    )
-            else:
-                raise ValueError("Independent variables not defined in model")
-
-            if guess:
-                if isinstance(model, lmfit.model.CompositeModel):
-                    guessed_params = model.make_params()
-                    for comp in model.components:
-                        with contextlib.suppress(NotImplementedError):
-                            guessed_params.update(comp.guess(y, **indep_var_kwargs))
-                    # Given parameters must override guessed parameters
-                    initial_params = guessed_params.update(initial_params)
-
-                else:
-                    try:
-                        initial_params = model.guess(y, **indep_var_kwargs).update(
-                            initial_params
-                        )
-                    except NotImplementedError:
-                        emit_user_level_warning(
-                            f"`guess` is not implemented for {model}, "
-                            "using supplied initial parameters"
-                        )
-                        initial_params = model.make_params().update(initial_params)
-            try:
-                modres = model.fit(
-                    y, **indep_var_kwargs, params=initial_params, **kwargs
-                )
-            except ValueError:
-                if errors == "raise":
-                    raise
-                modres = lmfit.model.ModelResult(model, initial_params, data=y)
-                modres.success = False
-                return popt, perr, pcov, stats, data, best, modres
-            else:
-                if modres.success:
-                    popt_list, perr_list = [], []
-                    for name in param_names:
-                        p = modres.params[name]
-                        popt_list.append(p.value if p.value is not None else np.nan)
-                        perr_list.append(p.stderr if p.stderr is not None else np.nan)
-
-                    popt, perr = np.array(popt_list), np.array(perr_list)
-
-                    stats = np.array(
-                        [
-                            s if s is not None else np.nan
-                            for s in [getattr(modres, s) for s in stat_names]
-                        ]
-                    )
-
-                    # Fill in covariance matrix entries, entries for non-varying
-                    # parameters are left as NaN
-                    if modres.covar is not None:
-                        var_names = modres.var_names
-                        for vi in range(modres.nvarys):
-                            i = param_names.index(var_names[vi])
-                            for vj in range(modres.nvarys):
-                                j = param_names.index(var_names[vj])
-                                pcov[i, j] = modres.covar[vi, vj]
-
-                    best.flat[mask] = modres.best_fit
-
-            return popt, perr, pcov, stats, data, best, modres
-
-        def _output_wrapper(name, da, out=None) -> dict:
-            name = "" if name is _THIS_ARRAY else f"{name!s}_"
-
-            if out is None:
-                out = {}
-
-            input_core_dims = [reduce_dims_ for _ in range(n_coords + 1)]
-            input_core_dims.extend([[] for _ in range(1)])  # core_dims for parameters
-
-            if not isinstance(params, xr.Dataset):
-                params_to_apply = params
-            else:
-                try:
-                    params_to_apply = params[name.rstrip("_")]
-                except KeyError:
-                    params_to_apply = params[float(name.rstrip("_"))]
-
-            popt, perr, pcov, stats, data, best, modres = xr.apply_ufunc(
-                _wrapper,
-                da,
-                *coords_,
-                params_to_apply,
-                vectorize=True,
-                dask="parallelized",
-                input_core_dims=input_core_dims,
-                output_core_dims=[
-                    ["param"],
-                    ["param"],
-                    ["cov_i", "cov_j"],
-                    ["fit_stat"],
-                    reduce_dims_,
-                    reduce_dims_,
-                    [],
-                ],
-                dask_gufunc_kwargs={
-                    "output_sizes": {
-                        "param": n_params,
-                        "fit_stat": n_stats,
-                        "cov_i": n_params,
-                        "cov_j": n_params,
-                    }
-                    | {dim: self._obj.coords[dim].size for dim in reduce_dims_}
-                },
-                output_dtypes=(
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    lmfit.model.ModelResult,
-                ),
-                exclude_dims=set(reduce_dims_),
-                kwargs=kwargs,
-            )
-
-            if output_result:
-                out[name + "modelfit_results"] = modres
-
-            out[name + "modelfit_coefficients"] = popt
-            out[name + "modelfit_stderr"] = perr
-            out[name + "modelfit_covariance"] = pcov
-            out[name + "modelfit_stats"] = stats
-            out[name + "modelfit_data"] = data
-            out[name + "modelfit_best_fit"] = best
-
-            return out
+        _output_wrapper = self._define_output_wrapper(
+            model=model,
+            params=params,
+            reduce_dims_=reduce_dims_,
+            coords_=coords_,
+            param_names=param_names,
+            stat_names=stat_names,
+            output_result=output_result,
+            skipna=skipna,
+            guess=guess,
+            errors=errors,
+            **kwargs,
+        )
 
         if parallel is None:
             parallel = (not is_dask) and (len(self._obj.data_vars) > 200)
 
-        tqdm_kw = {
+        tqdm_kw: dict[str, typing.Any] = {
             "desc": "Fitting",
             "total": len(self._obj.data_vars),
             "disable": not progress,
