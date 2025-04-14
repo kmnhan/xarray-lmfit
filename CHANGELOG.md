@@ -1,3 +1,11 @@
+## Unreleased
+
+### ⚡️ Performance
+
+- delay importing lmfit until needed (#9) ([6773d03](https://github.com/kmnhan/xarray-lmfit/commit/6773d03393057c1b866929724b02798186eedb0b))
+
+  This improves initial import time.
+
 ## v0.2.0 (2025-04-08)
 
 ### ✨ Features
