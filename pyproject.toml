@@ -200,6 +200,9 @@ filterwarnings = ["always"]
 source = ["src"]
 concurrency = ["multiprocessing", "thread"]
 
+[tool.coverage.report]
+exclude_also = ["if typing.TYPE_CHECKING:"]
+
 [tool.mypy]
 plugins = ["numpy.typing.mypy_plugin"]
 strict = false
