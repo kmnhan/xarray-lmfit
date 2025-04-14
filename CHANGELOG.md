@@ -1,4 +1,4 @@
-## Unreleased
+## v0.2.1 (2025-04-14)
 
 ### ⚡️ Performance
 
