@@ -8,8 +8,6 @@ import itertools
 import typing
 from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 
-import joblib
-import lmfit
 import numpy as np
 import numpy.typing as npt
 import tqdm.auto as tqdm
@@ -24,6 +22,16 @@ from xarray_lmfit._utils import (
     register_xlm_dataarray_accessor,
     register_xlm_dataset_accessor,
 )
+
+if typing.TYPE_CHECKING:
+    # Avoid importing until runtime for initial import performance
+    import joblib
+    import lmfit
+else:
+    import lazy_loader as _lazy
+
+    lmfit = _lazy.load("lmfit")
+    joblib = _lazy.load("joblib")
 
 
 def _nested_dict_vals(d):

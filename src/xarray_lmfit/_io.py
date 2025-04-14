@@ -1,7 +1,14 @@
 import os
+import typing
 
-import lmfit
 import xarray as xr
+
+if typing.TYPE_CHECKING:
+    import lmfit
+else:
+    import lazy_loader as _lazy
+
+    lmfit = _lazy.load("lmfit")
 
 
 def _dumps_result(result: lmfit.model.ModelResult) -> str:
