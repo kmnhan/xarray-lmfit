@@ -11,11 +11,11 @@ else:
     lmfit = _lazy.load("lmfit")
 
 
-def _dumps_result(result: lmfit.model.ModelResult) -> str:
+def _dumps_result(result: "lmfit.model.ModelResult") -> str:
     return result.dumps()
 
 
-def _loads_result(s: str, funcdefs: dict | None = None) -> lmfit.model.ModelResult:
+def _loads_result(s: str, funcdefs: dict | None = None) -> "lmfit.model.ModelResult":
     return lmfit.model.ModelResult(
         lmfit.Model(lambda x: x, None), lmfit.Parameters()
     ).loads(s, funcdefs=funcdefs)
