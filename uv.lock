@@ -2386,7 +2386,7 @@ wheels = [
 
 [[package]]
 name = "xarray-lmfit"
-version = "0.2.0"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "joblib" },
