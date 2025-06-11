@@ -204,7 +204,7 @@ concurrency = ["multiprocessing", "thread"]
 exclude_also = ["if typing.TYPE_CHECKING:"]
 
 [tool.mypy]
-plugins = ["numpy.typing.mypy_plugin"]
+plugins = []
 strict = false
 warn_unused_configs = true
 warn_redundant_casts = true
