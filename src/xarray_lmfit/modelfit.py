@@ -559,6 +559,13 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 "would result in fitting on scalar data."
             )
 
+        # Sort dims by their order in original object
+        if all(d in self._obj.dims for d in reduce_dims_):
+            # apply_ufunc will raise error downstream if this is False
+            reduce_dims_ = sorted(
+                reduce_dims_, key=lambda dim: list(self._obj.dims).index(dim)
+            )
+
         # Check that initial guess and bounds only contain coords in preserved_dims
         if isinstance(params, xr.DataArray | xr.Dataset):
             unexpected = set(params.dims) - set(preserved_dims)
