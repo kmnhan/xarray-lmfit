@@ -63,7 +63,12 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
     ds = result_ds.copy()
     for var in ds.data_vars:
         if str(var).endswith("modelfit_results"):
-            ds[var] = xr.apply_ufunc(_dumps_result, ds[var], vectorize=True)
+            ds[var] = xr.apply_ufunc(
+                _dumps_result,
+                ds[var],
+                vectorize=True,
+                output_dtypes=[str],
+            )
 
     ds.to_netcdf(path, **kwargs)
 
@@ -114,6 +119,7 @@ def load_fit(
                 lambda s: _loads_result(s, funcdefs),
                 result_ds[var],
                 vectorize=True,
+                output_dtypes=[object],
             )
 
     return result_ds
