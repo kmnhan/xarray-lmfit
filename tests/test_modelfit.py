@@ -1,4 +1,3 @@
-import contextlib
 import re
 
 import lmfit
@@ -62,44 +61,24 @@ def test_da_modelfit(
 
 
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
-@pytest.mark.parametrize(
-    "parallel_kind", ["list", "generator_unordered", "generator", "serial"]
-)
 def test_ds_modelfit(
     use_dask: bool,
-    parallel_kind: str,
     exp_decay_model: lmfit.Model,
     fit_test_darr: xr.DataArray,
     fit_expected_darr: xr.DataArray,
 ) -> None:
-    parallel: bool = parallel_kind != "serial"
-
-    warn_ctx = (
-        pytest.warns(
-            UserWarning,
-            match="The input Dataset is chunked. "
-            "Parallel fitting will not offer any performance benefits.",
-        )
-        if (use_dask and parallel)
-        else contextlib.nullcontext()
-    )
     fit_test_ds = xr.Dataset({"test0": fit_test_darr, "test1": fit_test_darr})
 
     # Tests are adapted from xarray's curvefit tests
     if use_dask:
         fit_test_ds = fit_test_ds.chunk({"x": 1})
 
-    parallel_kw = {} if not parallel else {"n_jobs": 1, "return_as": parallel_kind}
-
     # Params as dictionary
-    with warn_ctx:
-        fit = fit_test_ds.xlm.modelfit(
-            coords=[fit_test_ds.t],
-            model=exp_decay_model,
-            params={"n0": 4, "tau": {"min": 2, "max": 6}},
-            parallel=parallel,
-            parallel_kw=parallel_kw,
-        )
+    fit = fit_test_ds.xlm.modelfit(
+        coords=[fit_test_ds.t],
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+    )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
     )
@@ -108,14 +87,11 @@ def test_ds_modelfit(
     )
 
     # Params as lmfit.Parameters
-    with warn_ctx:
-        fit = fit_test_ds.xlm.modelfit(
-            coords=[fit_test_ds.t],
-            model=exp_decay_model,
-            params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
-            parallel=parallel,
-            parallel_kw=parallel_kw,
-        )
+    fit = fit_test_ds.xlm.modelfit(
+        coords=[fit_test_ds.t],
+        model=exp_decay_model,
+        params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
+    )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
     )
@@ -132,8 +108,6 @@ def test_ds_modelfit(
         model=lmfit.Model(power),
         reduce_dims="x",
         params={"a": {"value": 0.3, "vary": True}},
-        parallel=parallel,
-        parallel_kw=parallel_kw,
     )
 
     assert "a" in fit.param
@@ -323,3 +297,43 @@ def test_modelfit_expr() -> None:
             "p01_delta",
         ],
     )
+
+
+@pytest.mark.parametrize("use_client", [True, False], ids=["client", "no_client"])
+def test_modelfit_parallel_dask(use_client):
+    xval = np.linspace(-1, 1, 250)[np.newaxis, :]
+    num_z = 400
+
+    if use_client:
+        from dask.distributed import Client
+
+        client = Client()
+
+    center_shift = np.linspace(-0.1, 0.1, num_z)[:, np.newaxis]
+
+    # Lorentzian peaks with slightly shifted centers
+    test_data = xr.DataArray(
+        lorentzian(xval, amplitude=10, center=center_shift, sigma=0.3),
+        dims=["z", "x"],
+        coords={"z": np.arange(num_z), "x": xval.flatten()},
+    )
+
+    # Chunk data for dask parallelization
+    test_data = test_data.chunk({"z": 10})
+
+    # Initialize model and parameters
+    model = lmfit.models.LorentzianModel()
+    params = {
+        "amplitude": 9,
+        "center": xr.DataArray(center_shift.flatten(), coords=[test_data.z]),
+        "sigma": 0.3,
+    }
+
+    # Run modelfit
+    res = test_data.xlm.modelfit("x", model=model, params=params)
+
+    # Compute in parallel
+    res = res.compute()
+
+    if use_client:
+        client.close()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import itertools
 import typing
 from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 
@@ -18,20 +17,17 @@ from xarray_lmfit._utils import (
     XLMDataArrayAccessor,
     XLMDatasetAccessor,
     emit_user_level_warning,
-    joblib_progress,
     register_xlm_dataarray_accessor,
     register_xlm_dataset_accessor,
 )
 
 if typing.TYPE_CHECKING:
     # Avoid importing until runtime for initial import performance
-    import joblib
     import lmfit
 else:
     import lazy_loader as _lazy
 
     lmfit = _lazy.load("lmfit")
-    joblib = _lazy.load("joblib")
 
 
 def _nested_dict_vals(d):
@@ -61,7 +57,7 @@ def _concat_along_keys(d: dict[str, xr.DataArray], dim_name: str) -> xr.DataArra
 
 
 def _parse_params(
-    d: dict[str, typing.Any] | lmfit.Parameters, dask: bool
+    d: dict[str, typing.Any] | lmfit.Parameters,
 ) -> xr.DataArray | _ParametersWrapper:
     if isinstance(d, lmfit.Parameters):
         # Input to apply_ufunc cannot be a Mapping, so wrap in a class
@@ -70,14 +66,12 @@ def _parse_params(
     # Iterate over all values
     for v in _nested_dict_vals(d):
         if isinstance(v, xr.DataArray):
-            # For dask arrays, auto rechunking with object dtype is unsupported, so must
-            # convert to str
-            return _parse_multiple_params(copy.deepcopy(d), dask)
+            return _parse_multiple_params(copy.deepcopy(d))
 
     return _ParametersWrapper(lmfit.create_params(**d))
 
 
-def _parse_multiple_params(d: dict[str, typing.Any], as_str: bool) -> xr.DataArray:
+def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
     for k in d:
         if isinstance(d[k], int | float | complex | xr.DataArray):
             d[k] = {"value": d[k]}
@@ -105,11 +99,7 @@ def _parse_multiple_params(d: dict[str, typing.Any], as_str: bool) -> xr.DataArr
 
         for i in range(out_arr.size):
             out_arr.flat[i] = lmfit.create_params(**out_arr.flat[i])
-            if as_str:
-                out_arr.flat[i] = out_arr.flat[i].dumps()
 
-        if as_str:
-            return out_arr.astype(str)
         return out_arr
 
     return da.reduce(_reduce_to_param, ("__dict_keys", "__param_names"))
@@ -152,7 +142,30 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             initial_params = lmfit.create_params() if guess else model.make_params()
 
             if isinstance(init_params_, _ParametersWrapper):
-                initial_params.update(init_params_.params)
+                other = init_params_.params
+
+                if isinstance(other, lmfit.Parameters):
+                    initial_params.update(other)
+                else:
+                    # Instance check may fail in multiprocess, so forcibly set class
+                    other.__class__ = lmfit.Parameters
+
+                    # Copy behavior of Parameters.update() and set class for each param
+                    __params = []
+                    for par in other.values():
+                        par.__class__ = lmfit.Parameter
+
+                        __params.append(par)
+                        par._delay_asteval = True
+                        initial_params[par.name] = par
+
+                    for para in __params:
+                        para._delay_asteval = False
+
+                    for sym in other._asteval.user_defined_symbols():
+                        initial_params._asteval.symtable[sym] = other._asteval.symtable[
+                            sym
+                        ]
 
             elif isinstance(init_params_, str):
                 initial_params.update(lmfit.Parameters().loads(init_params_))
@@ -291,6 +304,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         output_result: bool,
         skipna: bool,
         guess: bool,
+        is_dask: bool,
         errors: typing.Literal["raise", "ignore"],
         **kwargs,
     ) -> typing.Callable:
@@ -323,6 +337,12 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                     params_to_apply = params[name.rstrip("_")]
                 except KeyError:
                     params_to_apply = params[float(name.rstrip("_"))]
+
+            if isinstance(params_to_apply, xr.DataArray) and is_dask:
+                # Since dask cannot auto-rechunk object arrays, rechunk to single chunk
+                params_to_apply = params_to_apply.chunk(
+                    dict.fromkeys(params_to_apply.dims, -1)
+                )
 
             popt, perr, pcov, stats, data, best, modres = xr.apply_ufunc(
                 _wrapper,
@@ -391,8 +411,6 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         | None = None,
         guess: bool = False,
         errors: typing.Literal["raise", "ignore"] = "raise",
-        parallel: bool | None = None,
-        parallel_kw: dict[str, typing.Any] | None = None,
         progress: bool = False,
         output_result: bool = True,
         param_names: list[str] | None = None,
@@ -455,18 +473,6 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             <lmfit.model.Model.fit>` optimization will raise an exception. If
             `'ignore'`, the return values for the coordinates where the fitting failed
             will be NaN.
-        parallel : bool, optional
-            Whether to parallelize the fits over the data variables. If not provided,
-            parallelization is only applied for non-dask Datasets with more than 200
-            data variables.
-
-            .. note::
-
-                This argument is utilized when fitting Datasets with multiple data
-                variables simultaneously.
-        parallel_kw : dict, optional
-            Additional keyword arguments to pass to the parallelization backend
-            :class:`joblib.Parallel` if `parallel` is `True`.
         progress : bool, default: `False`
             Whether to show a progress bar for fitting over data variables. Only useful
             if there are multiple data variables to fit.
@@ -523,15 +529,12 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         if params is None:
             params = lmfit.create_params()
 
-        if parallel_kw is None:
-            parallel_kw = {}
-
         is_dask: bool = not (not self._obj.chunksizes or len(self._obj.chunksizes) == 0)
 
         if not isinstance(params, xr.Dataset) and isinstance(params, Mapping):
             # Given as a mapping from str to ...
             # float or DataArray or dict of str to Any (including DataArray of Any)
-            params = _parse_params(params, is_dask)
+            params = _parse_params(params)
 
         reduce_dims_: list[Hashable]
         if not reduce_dims:
@@ -614,59 +617,19 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             output_result=output_result,
             skipna=skipna,
             guess=guess,
+            is_dask=is_dask,
             errors=errors,
             **kwargs,
         )
-
-        if parallel is None:
-            parallel = (not is_dask) and (len(self._obj.data_vars) > 200)
 
         tqdm_kw: dict[str, typing.Any] = {
             "desc": "Fitting",
             "total": len(self._obj.data_vars),
             "disable": not progress,
         }
-
-        if parallel:
-            if is_dask:
-                emit_user_level_warning(
-                    "The input Dataset is chunked. Parallel fitting will not offer any "
-                    "performance benefits."
-                )
-
-            parallel_kw.setdefault("n_jobs", -1)
-            parallel_kw.setdefault("max_nbytes", None)
-            parallel_kw.setdefault("return_as", "generator_unordered")
-            parallel_kw.setdefault("pre_dispatch", "n_jobs")
-            parallel_kw.setdefault("prefer", "processes")
-
-            parallel_obj = joblib.Parallel(**parallel_kw)
-
-            if parallel_obj.return_generator:
-                out_dicts = tqdm.tqdm(
-                    parallel_obj(
-                        itertools.starmap(
-                            joblib.delayed(_output_wrapper), self._obj.data_vars.items()
-                        )
-                    ),
-                    **tqdm_kw,
-                )
-            else:
-                with joblib_progress(**tqdm_kw) as _:
-                    out_dicts = parallel_obj(
-                        itertools.starmap(
-                            joblib.delayed(_output_wrapper), self._obj.data_vars.items()
-                        )
-                    )
-            result = type(self._obj)(
-                dict(itertools.chain.from_iterable(d.items() for d in out_dicts))
-            )
-            del out_dicts
-
-        else:
-            result = type(self._obj)()
-            for name, da in tqdm.tqdm(self._obj.data_vars.items(), **tqdm_kw):
-                _output_wrapper(name, da, result)
+        result = type(self._obj)()
+        for name, da in tqdm.tqdm(self._obj.data_vars.items(), **tqdm_kw):
+            _output_wrapper(name, da, result)
 
         result = result.assign_coords(
             {

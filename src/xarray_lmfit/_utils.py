@@ -1,14 +1,22 @@
-import contextlib
 import inspect
 import pathlib
 import sys
+import typing
 import warnings
 
 import xarray as xr
 
+if typing.TYPE_CHECKING:
+    # Avoid importing until runtime for initial import performance
+    import lmfit
+else:
+    import lazy_loader as _lazy
+
+    lmfit = _lazy.load("lmfit")
+
 
 def _find_stack_level() -> int:
-    """Find the first place in the stack that is not inside erlab, xarray, or stdlib.
+    """Find the first place in the stack that is not inside xarray_lmfit or stdlib.
 
     This is unless the code emanates from a test, in which case we would prefer to see
     the source.
@@ -18,7 +26,7 @@ def _find_stack_level() -> int:
     Returns
     -------
     stacklevel : int
-        First level in the stack that is not part of erlab or stdlib.
+        First level in the stack that is not part of xarray_lmfit or stdlib.
     """
     import xarray
 
@@ -58,32 +66,6 @@ def emit_user_level_warning(message, category=None) -> None:
     """Emit a warning at the user level by inspecting the stack trace."""
     stacklevel = _find_stack_level()
     return warnings.warn(message, category=category, stacklevel=stacklevel)
-
-
-@contextlib.contextmanager
-def joblib_progress(file=None, **kwargs):
-    """Patches joblib to report into a tqdm progress bar."""
-    import joblib
-    import tqdm
-
-    if file is None:
-        file = sys.stdout
-
-    tqdm_object = tqdm.tqdm(iterable=None, file=file, **kwargs)
-
-    def tqdm_print_progress(self) -> None:
-        if self.n_completed_tasks > tqdm_object.n:
-            n_completed = self.n_completed_tasks - tqdm_object.n
-            tqdm_object.update(n=n_completed)
-
-    original_print_progress = joblib.parallel.Parallel.print_progress
-    joblib.parallel.Parallel.print_progress = tqdm_print_progress
-
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.Parallel.print_progress = original_print_progress
-        tqdm_object.close()
 
 
 USE_QUICK = False
