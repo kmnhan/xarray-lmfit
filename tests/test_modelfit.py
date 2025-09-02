@@ -300,14 +300,10 @@ def test_modelfit_expr() -> None:
 
 
 @pytest.mark.parametrize("use_client", [True, False], ids=["client", "no_client"])
-def test_modelfit_parallel_dask(use_client):
+@pytest.mark.parametrize("single_param", [True, False], ids=["single", "broadcasted"])
+def test_modelfit_parallel_dask(use_client, single_param):
     xval = np.linspace(-1, 1, 250)[np.newaxis, :]
     num_z = 400
-
-    if use_client:
-        from dask.distributed import Client
-
-        client = Client()
 
     center_shift = np.linspace(-0.1, 0.1, num_z)[:, np.newaxis]
 
@@ -318,22 +314,35 @@ def test_modelfit_parallel_dask(use_client):
         coords={"z": np.arange(num_z), "x": xval.flatten()},
     )
 
-    # Chunk data for dask parallelization
-    test_data = test_data.chunk({"z": 10})
-
-    # Initialize model and parameters
-    model = lmfit.models.LorentzianModel()
-    params = {
-        "amplitude": 9,
-        "center": xr.DataArray(center_shift.flatten(), coords=[test_data.z]),
-        "sigma": 0.3,
-    }
-
-    # Run modelfit
-    res = test_data.xlm.modelfit("x", model=model, params=params)
-
-    # Compute in parallel
-    res = res.compute()
-
     if use_client:
-        client.close()
+        from dask.distributed import Client
+
+        client = Client()
+
+    try:
+        # Chunk data for dask parallelization
+        test_data = test_data.chunk({"z": 10})
+
+        # Initialize model and parameters
+        model = lmfit.models.LorentzianModel()
+        params = {
+            "amplitude": 9,
+            "sigma": 0.3,
+        }
+        if single_param:
+            params["center"] = 0.0
+        else:
+            params["center"] = xr.DataArray(
+                center_shift.flatten(), coords=[test_data.z]
+            )
+
+        # Run modelfit
+        res = test_data.xlm.modelfit("x", model=model, params=params)
+
+        # Compute in parallel
+        res = res.compute()
+        assert isinstance(res.modelfit_results[0].item(), lmfit.model.ModelResult)
+
+    finally:
+        if use_client:
+            client.shutdown()
