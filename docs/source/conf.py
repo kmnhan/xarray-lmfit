@@ -106,7 +106,6 @@ intersphinx_mapping = {
     "xarray": ("https://docs.xarray.dev/en/stable", None),
     # "pandas": ("https://pandas.pydata.org/docs", None),
     # "ipywidgets": ("https://ipywidgets.readthedocs.io/en/stable", None),
-    "joblib": ("https://joblib.readthedocs.io/en/latest", None),
     # "panel": ("https://panel.holoviz.org", None),
     # "hvplot": ("https://hvplot.holoviz.org", None),
 }
@@ -118,15 +117,15 @@ nbsphinx_execute_arguments = ["--InlineBackend.figure_formats={'svg', 'pdf'}"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 pygments_dark_style = "monokai"
-html_theme = "sphinx_book_theme"
+html_theme = "pydata_sphinx_theme"
+html_context = {
+    "github_user": "kmnhan",
+    "github_repo": "xarray-lmfit",
+    "github_version": "main",
+    "doc_path": "docs/source",
+}
 html_theme_options = {
-    "repository_url": "https://github.com/kmnhan/xarray-lmfit",
-    "use_repository_button": True,
-    "use_source_button": True,
     "use_edit_page_button": True,
-    "use_issues_button": True,
-    "path_to_docs": "docs/source",
-    "repository_branch": "main",
     "icon_links": [
         {
             "name": "GitHub",
