@@ -3,25 +3,10 @@
 :::{only} format_html
 **Date**: {sub-ref}`today`
 
-```{image} https://img.shields.io/pypi/pyversions/xarray-lmfit?style=flat-square&logo=python&logoColor=white
-:alt: Supported Python Versions
-:target: https://pypi.org/project/xarray-lmfit/
-```
-
-```{image} https://img.shields.io/pypi/v/xarray-lmfit?style=flat-square&logo=pypi&logoColor=white
-:alt: PyPi
-:target: https://pypi.org/project/xarray-lmfit/
-```
-
-```{image} https://img.shields.io/conda/vn/conda-forge/xarray-lmfit?style=flat-square&logo=condaforge&logoColor=white
-:alt: Conda Version
-:target: https://anaconda.org/conda-forge/xarray-lmfit
-```
-
-```{image} https://img.shields.io/github/last-commit/kmnhan/xarray-lmfit?style=flat-square&logo=github&color=lightseagreen
-:alt: Last Commit
-:target: https://github.com/kmnhan/xarray-lmfit.git
-```
+[![Python Versions](https://img.shields.io/pypi/pyversions/xarray-lmfit?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/xarray-lmfit/)
+[![PyPi](https://img.shields.io/pypi/v/xarray-lmfit?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/xarray-lmfit/)
+[![Conda Version](https://img.shields.io/conda/vn/conda-forge/xarray-lmfit?style=flat-square&logo=condaforge&logoColor=white)](https://anaconda.org/conda-forge/xarray-lmfit/)
+[![Last Commit](https://img.shields.io/github/last-commit/kmnhan/xarray-lmfit?style=flat-square&logo=github&color=lightseagreen)](https://github.com/kmnhan/xarray-lmfit.git)
 
 :::
 
@@ -38,8 +23,9 @@ Please note that this package is independent and not affiliated with the xarray 
 ```{toctree}
 :caption: Contents
 :maxdepth: 2
+:hidden:
 
-getting-started
 user-guide/index
 api
+changelog
 ```

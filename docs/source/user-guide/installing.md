@@ -1,17 +1,15 @@
-# Getting Started
-
-## Installing
+# Installing
 
 `xarray-lmfit` is available in the Python Package Index (PyPI) and conda-forge.
 
-### Using `pip`
+## Using `pip`
 
 ```bash
 # Inside your virtual environment
 pip install xarray-lmfit
 ```
 
-### Using `conda`
+## Using `conda`
 
 ```bash
 # Inside your conda environment

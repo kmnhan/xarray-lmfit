@@ -2785,6 +2785,7 @@ dev = [
 docs = [
     { name = "matplotlib" },
     { name = "myst-nb" },
+    { name = "pydata-sphinx-theme" },
     { name = "sphinx" },
     { name = "sphinx-autosummary-accessors" },
     { name = "sphinx-book-theme" },
@@ -2817,6 +2818,7 @@ dev = [
 docs = [
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "myst-nb", specifier = ">=1.2.0" },
+    { name = "pydata-sphinx-theme", specifier = ">=0.15.4" },
     { name = "sphinx", specifier = ">=8.0.0" },
     { name = "sphinx-autosummary-accessors", specifier = ">=2025.3.1" },
     { name = "sphinx-book-theme", specifier = ">=1.1.3" },

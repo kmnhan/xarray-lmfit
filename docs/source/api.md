@@ -1,4 +1,4 @@
-# API reference
+# API Reference
 
 ```{eval-rst}
 .. currentmodule:: xarray_lmfit
