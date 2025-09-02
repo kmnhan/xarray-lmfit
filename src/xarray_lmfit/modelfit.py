@@ -321,11 +321,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         n_params = len(param_names)
         n_stats = len(stat_names)
 
-        def _output_wrapper(name, da, out=None) -> dict:
+        def _output_wrapper(name, da, out) -> dict:
             name = "" if name is _THIS_ARRAY else f"{name!s}_"
-
-            if out is None:
-                out = {}
 
             input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
             input_core_dims.extend([[] for _ in range(1)])  # core_dims for parameters
@@ -334,9 +331,9 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 params_to_apply = params
             else:
                 try:
-                    params_to_apply = params[name.rstrip("_")]
+                    params_to_apply = params[name.removesuffix("_")]
                 except KeyError:
-                    params_to_apply = params[float(name.rstrip("_"))]
+                    params_to_apply = params[float(name.removesuffix("_"))]
 
             if isinstance(params_to_apply, xr.DataArray) and is_dask:
                 # Since dask cannot auto-rechunk object arrays, rechunk to single chunk
