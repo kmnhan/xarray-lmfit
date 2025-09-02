@@ -30,7 +30,8 @@ else:
     lmfit = _lazy.load("lmfit")
 
 
-def _nested_dict_vals(d):
+def _nested_dict_vals(d) -> Iterable[typing.Any]:
+    """Recursively yield all "leaf" values in a nested dictionary."""
     for v in d.values():
         if isinstance(v, Mapping):
             yield from _nested_dict_vals(v)
@@ -39,6 +40,7 @@ def _nested_dict_vals(d):
 
 
 def _broadcast_dict_values(d: dict[str, typing.Any]) -> dict[str, xr.DataArray]:
+    """Broadcast all values in a dictionary to DataArrays with matching dimensions."""
     to_broadcast = {}
     for k, v in d.items():
         if isinstance(v, xr.DataArray | xr.Dataset):
@@ -63,11 +65,12 @@ def _parse_params(
         # Input to apply_ufunc cannot be a Mapping, so wrap in a class
         return _ParametersWrapper(d)
 
-    # Iterate over all values
+    # Iterate over all values to check if any DataArrays are present
     for v in _nested_dict_vals(d):
         if isinstance(v, xr.DataArray):
             return _parse_multiple_params(copy.deepcopy(d))
 
+    # Can be treated as a single lmfit.Parameters object for all fits
     return _ParametersWrapper(lmfit.create_params(**d))
 
 
@@ -106,6 +109,12 @@ def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
 
 
 class _ParametersWrapper:
+    """Wrapper class to pass lmfit.Parameters through xarray.apply_ufunc.
+
+    Since Mapping types (dict and lmfit.Parameters) are not allowed as positional inputs
+    to xarray.apply_ufunc, we wrap lmfit.Parameters in this class.
+    """
+
     def __init__(self, params: lmfit.Parameters) -> None:
         self.params = params
 
