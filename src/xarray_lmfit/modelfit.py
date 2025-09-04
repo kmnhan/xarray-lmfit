@@ -182,13 +182,6 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             elif isinstance(init_params_, lmfit.Parameters):
                 initial_params.update(init_params_)
 
-            elif isinstance(init_params_, Mapping):
-                for pname, v in init_params_.items():
-                    if isinstance(v, Mapping):
-                        initial_params[pname].set(**v)
-                    else:
-                        initial_params[pname].set(value=v)
-
             popt = np.full([n_params], np.nan)
             perr = np.full([n_params], np.nan)
             pcov = np.full([n_params, n_params], np.nan)
@@ -541,6 +534,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             # Given as a mapping from str to ...
             # float or DataArray or dict of str to Any (including DataArray of Any)
             params = _parse_params(params)
+            # Now, params is either a _ParametersWrapper or a DataArray of Parameters
 
         reduce_dims_: list[Hashable]
         if not reduce_dims:
