@@ -1,3 +1,15 @@
+## Unreleased
+
+### 💥 Breaking Changes
+
+- While adding dask support, this release drops support for rudimentary joblib-based parallelization across multiple data variables; this removes the `parallel` and `parallel_kw` arguments to `modelfit`. Use dask arrays as an alternative. ([d3f90df](https://github.com/kmnhan/xarray-lmfit/commit/d3f90dffb226fab71e96309f41da35e0a929adc5))
+
+### ✨ Features
+
+- **modelfit:** properly support dask and drop support for joblib-based parallelization ([d3f90df](https://github.com/kmnhan/xarray-lmfit/commit/d3f90dffb226fab71e96309f41da35e0a929adc5))
+
+  `modelfit` now supports dask arrays properly with minimal serialization overhead.
+
 ## v0.2.3 (2025-06-11)
 
 ### 🐞 Bug Fixes
