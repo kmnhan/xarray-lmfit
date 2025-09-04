@@ -605,6 +605,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             "redchi",
             "aic",
             "bic",
+            "rsquared",
         ]
 
         _output_wrapper = self._define_output_wrapper(
