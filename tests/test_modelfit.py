@@ -18,9 +18,11 @@ def power(t, a):
     return np.power(t, a)
 
 
+@pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_da_modelfit(
     use_dask: bool,
+    progress: bool,
     exp_decay_model: lmfit.Model,
     fit_test_darr: xr.DataArray,
     fit_expected_darr: xr.DataArray,
@@ -34,6 +36,7 @@ def test_da_modelfit(
         coords=[fit_test_darr.t],
         model=exp_decay_model,
         params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
 
@@ -42,6 +45,7 @@ def test_da_modelfit(
         coords=[fit_test_darr.t],
         model=exp_decay_model,
         params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
+        progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
 
@@ -54,15 +58,18 @@ def test_da_modelfit(
         model=lmfit.Model(power),
         reduce_dims="x",
         params={"a": {"value": 0.3, "vary": True}},
+        progress=progress,
     )
 
     assert "a" in fit.param
     assert fit.modelfit_results.dims == ()
 
 
+@pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_ds_modelfit(
     use_dask: bool,
+    progress: bool,
     exp_decay_model: lmfit.Model,
     fit_test_darr: xr.DataArray,
     fit_expected_darr: xr.DataArray,
@@ -78,6 +85,7 @@ def test_ds_modelfit(
         coords=[fit_test_ds.t],
         model=exp_decay_model,
         params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        progress=progress,
     )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
@@ -91,6 +99,7 @@ def test_ds_modelfit(
         coords=[fit_test_ds.t],
         model=exp_decay_model,
         params=lmfit.create_params(n0=4, tau={"min": 2, "max": 6}),
+        progress=progress,
     )
     np.testing.assert_allclose(
         fit.test0_modelfit_coefficients, fit_expected_darr, rtol=1e-3
@@ -108,6 +117,7 @@ def test_ds_modelfit(
         model=lmfit.Model(power),
         reduce_dims="x",
         params={"a": {"value": 0.3, "vary": True}},
+        progress=progress,
     )
 
     assert "a" in fit.param
@@ -115,8 +125,9 @@ def test_ds_modelfit(
     assert fit.test1_modelfit_results.dims == ()
 
 
+@pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False])
-def test_modelfit_params(use_dask: bool) -> None:
+def test_modelfit_params(use_dask: bool, progress: bool) -> None:
     def sine(t, a, f, p):
         return a * np.sin(2 * np.pi * (f * t + p))
 
@@ -158,6 +169,7 @@ def test_modelfit_params(use_dask: bool) -> None:
             model=lmfit.Model(sine),
             params=params,
             param_names=["a", "f", "z"],
+            progress=progress,
         ).compute()
 
     # params as mixed dictionary
@@ -169,6 +181,7 @@ def test_modelfit_params(use_dask: bool) -> None:
             "p": xr.DataArray(p_guess, coords=[da.x]),
             "f": 2.0,
         },
+        progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, expected)
 
@@ -204,6 +217,7 @@ def test_modelfit_params(use_dask: bool) -> None:
             ],
             coords=[da.x],
         ),
+        progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, expected, atol=1e-8)
 
@@ -220,6 +234,7 @@ def test_modelfit_params(use_dask: bool) -> None:
                 "max": xr.DataArray([2, 0], coords=[da.x]),
             },
         },
+        progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, expected, atol=1e-8)
 
@@ -301,7 +316,7 @@ def test_modelfit_expr() -> None:
 
 @pytest.mark.parametrize("use_client", [True, False], ids=["client", "no_client"])
 @pytest.mark.parametrize("single_param", [True, False], ids=["single", "broadcasted"])
-def test_modelfit_parallel_dask(use_client, single_param):
+def test_modelfit_parallel_dask(use_client: bool, single_param: bool) -> None:
     xval = np.linspace(-1, 1, 250)[np.newaxis, :]
     num_z = 400
 
