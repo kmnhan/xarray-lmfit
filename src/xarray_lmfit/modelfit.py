@@ -9,7 +9,6 @@ from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
-import tqdm.auto as tqdm
 import xarray as xr
 from xarray.core.dataarray import _THIS_ARRAY
 
@@ -323,7 +322,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         n_params = len(param_names)
         n_stats = len(stat_names)
 
-        def _output_wrapper(name, da, out) -> dict:
+        def _output_wrapper(name, da, out) -> None:
             name = "" if name is _THIS_ARRAY else f"{name!s}_"
 
             input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
@@ -391,8 +390,6 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             out[name + "modelfit_stats"] = stats
             out[name + "modelfit_data"] = data
             out[name + "modelfit_best_fit"] = best
-
-            return out
 
         return _output_wrapper
 
@@ -474,7 +471,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             will be NaN.
         progress : bool, default: `False`
             Whether to show a progress bar for fitting over data variables. Only useful
-            if there are multiple data variables to fit.
+            if there are multiple data variables to fit. Requires the ``tqdm`` package
+            to be installed.
         output_result : bool, default: `True`
             Whether to include the full :class:`lmfit.model.ModelResult` object in the
             output dataset. If `True`, the result will be stored in a variable named
@@ -622,14 +620,25 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             errors=errors,
             **kwargs,
         )
+        result = xr.Dataset()
 
-        tqdm_kw: dict[str, typing.Any] = {
-            "desc": "Fitting",
-            "total": len(self._obj.data_vars),
-            "disable": not progress,
-        }
-        result = type(self._obj)()
-        for name, da in tqdm.tqdm(self._obj.data_vars.items(), **tqdm_kw):
+        if progress:
+            try:
+                import tqdm.auto as tqdm
+            except ImportError as e:
+                raise RuntimeError(
+                    "progress bars require the 'tqdm' package. "
+                    "Install with: pip install tqdm"
+                ) from e
+            var_items_iter = tqdm.tqdm(
+                self._obj.data_vars.items(),
+                desc="Fitting",
+                total=len(self._obj.data_vars),
+            )
+        else:
+            var_items_iter = self._obj.data_vars.items()
+
+        for name, da in var_items_iter:
             _output_wrapper(name, da, result)
 
         result = result.assign_coords(
