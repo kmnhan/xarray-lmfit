@@ -561,7 +561,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         if params is None:
             params = lmfit.create_params()
 
-        is_dask: bool = self._obj.chunks is not None
+        is_dask: bool = bool(self._obj.chunks)
 
         if not isinstance(params, xr.Dataset) and isinstance(params, Mapping):
             # Given as a mapping from str to ...
