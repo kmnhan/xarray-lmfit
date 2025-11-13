@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.14t"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,21 +39,21 @@ jobs:
         run: uv sync --all-extras --dev --upgrade
 
       - name: Test with pytest
-        if: matrix.python-version != '3.13'
+        if: matrix.python-version != '3.14'
         run: uv run pytest
 
       - name: Test with pytest with coverage
-        if: matrix.python-version == '3.13'
+        if: matrix.python-version == '3.14'
         run: uv run pytest -v --cov --cov-branch --cov-report=xml
 
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.13'
+        if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results to Codecov
-        if: ${{ matrix.python-version == '3.13' && !cancelled() }}
+        if: ${{ matrix.python-version == '3.14' && !cancelled() }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -68,7 +68,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install mypy and dependencies
         run: uv sync --all-extras --dev --upgrade
