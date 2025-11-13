@@ -162,6 +162,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                     initial_params.update(other)
                 else:
                     # Instance check may fail in multiprocess, so forcibly set class
+                    # This no longer triggers in CI in python 3.14+, presumably due to
+                    # different default forking method
                     other.__class__ = lmfit.Parameters
 
                     # Copy behavior of Parameters.update() and set class for each param
