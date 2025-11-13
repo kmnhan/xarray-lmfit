@@ -144,8 +144,14 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             # *args contains:
             #   - the coordinates
             #   - parameters object
+            #   - weights
             coords__ = args[:n_coords]
             init_params_ = args[n_coords]
+            weights_ = (
+                args[n_coords + 1].ravel()
+                if len(args) > n_coords + 1
+                else kwargs.pop("weights", None)
+            )
 
             initial_params = lmfit.create_params() if guess else model.make_params()
 
@@ -195,9 +201,13 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 mask = np.all([np.any(~np.isnan(x), axis=0), ~np.isnan(y)], axis=0)
                 x = x[:, mask]
                 y = y[mask]
+                if weights_ is not None and not np.isscalar(weights_):
+                    weights_ = weights_[mask]
                 if not len(y):
                     # No data to fit
-                    modres = lmfit.model.ModelResult(model, initial_params, data=y)
+                    modres = lmfit.model.ModelResult(
+                        model, initial_params, data=y, weights=weights_
+                    )
                     modres.success = False
                     return popt, perr, pcov, stats, data, best, modres
             else:
@@ -240,12 +250,18 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                         initial_params = model.make_params().update(initial_params)
             try:
                 modres = model.fit(
-                    y, **indep_var_kwargs, params=initial_params, **kwargs
+                    y,
+                    **indep_var_kwargs,
+                    params=initial_params,
+                    weights=weights_,
+                    **kwargs,
                 )
             except ValueError:
                 if errors == "raise":
                     raise
-                modres = lmfit.model.ModelResult(model, initial_params, data=y)
+                modres = lmfit.model.ModelResult(
+                    model, initial_params, data=y, weights=weights_
+                )
                 modres.success = False
                 return popt, perr, pcov, stats, data, best, modres
             else:
@@ -318,16 +334,13 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             guess=guess,
             errors=errors,
         )
-
         n_params = len(param_names)
         n_stats = len(stat_names)
 
         def _output_wrapper(name, da, out) -> None:
             name = "" if name is _THIS_ARRAY else f"{name!s}_"
 
-            input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
-            input_core_dims.extend([[] for _ in range(1)])  # core_dims for parameters
-
+            # Select parameters for this data variable
             if not isinstance(params, xr.Dataset):
                 params_to_apply = params
             else:
@@ -337,16 +350,32 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                     params_to_apply = params[float(name.removesuffix("_"))]
 
             if isinstance(params_to_apply, xr.DataArray) and is_dask:
+                # TODO: check whether this works with chunked datasets
                 # Since dask cannot auto-rechunk object arrays, rechunk to single chunk
                 params_to_apply = params_to_apply.chunk(
                     dict.fromkeys(params_to_apply.dims, -1)
                 )
 
+            # Positional arguments to wrapper
+            args = [da, *coords_, params_to_apply]
+
+            # Core dims for data & coords
+            input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
+
+            # Core dims for parameters
+            input_core_dims.append([])
+
+            if isinstance(kwargs.get("weights"), xr.DataArray):
+                weights = typing.cast("xr.DataArray", kwargs.pop("weights"))
+                weights = weights.broadcast_like(da)
+                args.append(weights)
+
+                # Core dims for weights
+                input_core_dims.append([d for d in reduce_dims_ if d in weights.dims])
+
             popt, perr, pcov, stats, data, best, modres = xr.apply_ufunc(
                 _wrapper,
-                da,
-                *coords_,
-                params_to_apply,
+                *args,
                 vectorize=True,
                 dask="parallelized",
                 input_core_dims=input_core_dims,
@@ -486,6 +515,10 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             Additional keyword arguments to passed to :meth:`lmfit.Model.fit
             <lmfit.model.Model.fit>`.
 
+            The ``weights`` keyword argument may also be provided as a DataArray, which
+            will be broadcasted appropriately. The weights must share at least one
+            dimension with the calling object.
+
         Returns
         -------
         xarray.Dataset
@@ -526,7 +559,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         if params is None:
             params = lmfit.create_params()
 
-        is_dask: bool = not (not self._obj.chunksizes or len(self._obj.chunksizes) == 0)
+        is_dask: bool = self._obj.chunks is not None
 
         if not isinstance(params, xr.Dataset) and isinstance(params, Mapping):
             # Given as a mapping from str to ...

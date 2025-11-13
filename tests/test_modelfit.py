@@ -49,6 +49,46 @@ def test_da_modelfit(
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
 
+    # Test weights input as DataArray
+    fit = fit_test_darr.xlm.modelfit(
+        coords="t",
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        weights=1.0 / np.sqrt(fit_test_darr),
+        progress=progress,
+    )
+    np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+
+    # Test weights input as DataArray (less broadcasted)
+    fit = fit_test_darr.xlm.modelfit(
+        coords="t",
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        weights=np.sqrt(fit_test_darr.t),
+        progress=progress,
+    )
+    np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+
+    # Test weights input as ndarray
+    fit = fit_test_darr.xlm.modelfit(
+        coords="t",
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        weights=np.sqrt(fit_test_darr.t.values),
+        progress=progress,
+    )
+    np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+
+    # Test weights input as scalar
+    fit = fit_test_darr.xlm.modelfit(
+        coords="t",
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        weights=0.1,
+        progress=progress,
+    )
+    np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+
     if use_dask:
         fit_test_darr = fit_test_darr.compute()
 
