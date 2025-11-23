@@ -1,3 +1,11 @@
+## v0.5.0 (2025-11-23)
+
+### ✨ Features
+
+- **modelfit:** make results picklable (#25) ([eb8a1f4](https://github.com/kmnhan/xarray-lmfit/commit/eb8a1f43280bb2e1e798ac6f4c9b0bf01453a2a8))
+
+  When using dask to parallelize model fitting, the generated dask graph may contain dynamically defined functions or that are not picklable. This commit refactors the fit function to a module-level function, ensuring that the results can be pickled.
+
 ## v0.4.1 (2025-11-13)
 
 ### 🐞 Bug Fixes
