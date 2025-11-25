@@ -2,8 +2,6 @@ import contextlib
 import os
 import typing
 
-import lmfit.jsonutils
-import lmfit.parameter
 import xarray as xr
 
 if typing.TYPE_CHECKING:
@@ -24,6 +22,9 @@ def _patch_encode4js():
     same callable that greatly speeds up saving fit results that use the same model
     function multiple times.
     """
+    import lmfit.jsonutils
+    import lmfit.parameter
+
     encode4js_orig = lmfit.jsonutils.encode4js
 
     cache = {}
