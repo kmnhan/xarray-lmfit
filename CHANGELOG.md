@@ -1,3 +1,11 @@
+## v0.5.1 (2025-11-25)
+
+### ⚡️ Performance
+
+- **io:** greatly speed up saving fit results ([098200c](https://github.com/kmnhan/xarray-lmfit/commit/098200c1e0e1dda8fc95ffcbfec9739b626e0ae9))
+
+  Speeds up repeated serializations of the same callable by caching.
+
 ## v0.5.0 (2025-11-23)
 
 ### ✨ Features
