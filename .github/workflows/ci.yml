@@ -39,12 +39,18 @@ jobs:
         run: uv sync --all-extras --dev --upgrade
 
       - name: Test with pytest
-        if: matrix.python-version != '3.13'
+        if: matrix.python-version != '3.13' && matrix.python-version != '3.14t'
         run: uv run pytest
 
       - name: Test with pytest with coverage
         if: matrix.python-version == '3.13'
         run: uv run pytest -v --cov --cov-branch --cov-report=xml
+
+      - name: Test with pytest (PYTHON_GIL=0)
+        if: matrix.python-version == '3.14t'
+        env:
+          PYTHON_GIL: 0
+        run: uv run pytest
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13'
