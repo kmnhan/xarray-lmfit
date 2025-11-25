@@ -1,6 +1,9 @@
+import contextlib
 import os
 import typing
 
+import lmfit.jsonutils
+import lmfit.parameter
 import xarray as xr
 
 if typing.TYPE_CHECKING:
@@ -11,8 +14,43 @@ else:
     lmfit = _lazy.load("lmfit")
 
 
+@contextlib.contextmanager
+def _patch_encode4js():
+    """Context manager that patches lmfit's serialization code to cache callables.
+
+    When caching callables during serialization, lmfit must recuse over all imported
+    modules to find the callable's fully qualified name. This can be very slow for
+    repeated serializations of the same callable. This patch caches the results of the
+    same callable that greatly speeds up saving fit results that use the same model
+    function multiple times.
+    """
+    encode4js_orig = lmfit.jsonutils.encode4js
+
+    cache = {}
+
+    def _cache_callable(obj):
+        key = id(obj)
+        if key not in cache:
+            cache[key] = encode4js_orig(obj)
+        return cache[key]
+
+    def encode4js_new(obj):
+        if callable(obj):
+            return _cache_callable(obj)
+        return encode4js_orig(obj)
+
+    lmfit.jsonutils.encode4js = encode4js_new
+    lmfit.parameter.encode4js = encode4js_new
+    try:
+        yield
+    finally:
+        lmfit.jsonutils.encode4js = encode4js_orig
+        lmfit.parameter.encode4js = encode4js_orig
+
+
 def _dumps_result(result: "lmfit.model.ModelResult") -> str:
-    return result.dumps()
+    with _patch_encode4js():
+        return result.dumps()
 
 
 def _loads_result(s: str, funcdefs: dict | None = None) -> "lmfit.model.ModelResult":
