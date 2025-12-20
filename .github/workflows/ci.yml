@@ -80,12 +80,4 @@ jobs:
         run: uv sync --all-extras --dev --upgrade
 
       - name: Run mypy
-        run: uv run mypy --install-types --non-interactive --html-report mypy-report .
-
-      - name: Upload mypy results
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: mypy-report
-          path: mypy-report/
-          if-no-files-found: error
+        run: uv run mypy --install-types --non-interactive .
