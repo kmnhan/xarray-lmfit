@@ -36,7 +36,7 @@ dev = [
     "dask[distributed]>=2025.2.0",
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
-    "mypy[faster-cache,reports]>=1.15.0",
+    "mypy>=1.15.0",
     "pre-commit>=4.1.0",
     "pytest>=9.0.0",
     "pytest-cov>=6.0.0",
@@ -58,8 +58,8 @@ Repository = "https://github.com/kmnhan/xarray-lmfit.git"
 Issues = "https://github.com/kmnhan/xarray-lmfit/issues"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.8.13"]
+build-backend = "uv_build"
 
 [tool.commitizen]
 change_type_map = { "BREAKING CHANGE" = "💥 Breaking Changes", "feat" = "✨ Features", "fix" = "🐞 Bug Fixes", "perf" = "⚡️ Performance", "refactor" = "♻️ Code Refactor" }
