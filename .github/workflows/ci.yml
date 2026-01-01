@@ -44,7 +44,7 @@ jobs:
 
       - name: Test with pytest with coverage
         if: matrix.python-version == '3.13'
-        run: uv run pytest -v --cov --cov-branch --cov-report=xml
+        run: uv run pytest -v --cov --cov-branch --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
 
       - name: Test with pytest (PYTHON_GIL=0)
         if: matrix.python-version == '3.14t'
@@ -60,9 +60,10 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ matrix.python-version == '3.13' && !cancelled() }}
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: "test_results"
 
   mypy:
     name: Static type checking
