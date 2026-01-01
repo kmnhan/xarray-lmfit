@@ -83,8 +83,7 @@ def _patch_encode4js():
 
 
 def _dumps_result(result: "lmfit.model.ModelResult") -> str:
-    with _patch_encode4js():
-        return result.dumps()
+    return result.dumps()
 
 
 def _loads_result(s: str, funcdefs: dict | None = None) -> "lmfit.model.ModelResult":
@@ -133,14 +132,15 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
 
     """
     ds = result_ds.copy()
-    for var in ds.data_vars:
-        if str(var).endswith("modelfit_results"):
-            ds[var] = xr.apply_ufunc(
-                _dumps_result,
-                ds[var],
-                vectorize=True,
-                output_dtypes=[str],
-            )
+    with _patch_encode4js():
+        for var in ds.data_vars:
+            if str(var).endswith("modelfit_results"):
+                ds[var] = xr.apply_ufunc(
+                    _dumps_result,
+                    ds[var],
+                    vectorize=True,
+                    output_dtypes=[str],
+                )
 
     ds.to_netcdf(path, **kwargs)
 
