@@ -1,6 +1,8 @@
 import contextlib
 import os
+import threading
 import typing
+from collections.abc import Callable
 
 import xarray as xr
 
@@ -10,6 +12,13 @@ else:
     import lazy_loader as _lazy
 
     lmfit = _lazy.load("lmfit")
+
+
+_ENCODE4JS_LOCK: threading.RLock = threading.RLock()
+_ENCODE4JS_PATCH_DEPTH: int = 0
+_ENCODE4JS_ORIG: Callable | None = None
+_ENCODE4JS_PATCHED: Callable | None = None
+_ENCODE4JS_TLS: threading.local = threading.local()
 
 
 @contextlib.contextmanager
@@ -25,28 +34,49 @@ def _patch_encode4js():
     import lmfit.jsonutils
     import lmfit.parameter
 
-    encode4js_orig = lmfit.jsonutils.encode4js
+    global _ENCODE4JS_PATCH_DEPTH, _ENCODE4JS_ORIG, _ENCODE4JS_PATCHED
 
-    cache = {}
+    with _ENCODE4JS_LOCK:
+        if _ENCODE4JS_PATCH_DEPTH == 0:
+            _ENCODE4JS_ORIG = lmfit.jsonutils.encode4js
 
-    def _cache_callable(obj):
-        key = id(obj)
-        if key not in cache:
-            cache[key] = encode4js_orig(obj)
-        return cache[key]
+            def encode4js_new(obj):
+                cache = getattr(_ENCODE4JS_TLS, "cache", None)
+                if cache is not None and callable(obj):
+                    key = id(obj)
+                    if key not in cache:
+                        cache[key] = _ENCODE4JS_ORIG(obj)
+                    return cache[key]
+                return _ENCODE4JS_ORIG(obj)
 
-    def encode4js_new(obj):
-        if callable(obj):
-            return _cache_callable(obj)
-        return encode4js_orig(obj)
+            _ENCODE4JS_PATCHED = encode4js_new
+            lmfit.jsonutils.encode4js = _ENCODE4JS_PATCHED
+            lmfit.parameter.encode4js = _ENCODE4JS_PATCHED
 
-    lmfit.jsonutils.encode4js = encode4js_new
-    lmfit.parameter.encode4js = encode4js_new
+        _ENCODE4JS_PATCH_DEPTH += 1
+
+    tls_depth = getattr(_ENCODE4JS_TLS, "depth", 0)
+    if tls_depth == 0:
+        _ENCODE4JS_TLS.cache = {}
+    _ENCODE4JS_TLS.depth = tls_depth + 1
     try:
         yield
     finally:
-        lmfit.jsonutils.encode4js = encode4js_orig
-        lmfit.parameter.encode4js = encode4js_orig
+        tls_depth = getattr(_ENCODE4JS_TLS, "depth", 0) - 1
+        if tls_depth <= 0:
+            for attr in ("cache", "depth"):
+                if hasattr(_ENCODE4JS_TLS, attr):
+                    delattr(_ENCODE4JS_TLS, attr)
+        else:
+            _ENCODE4JS_TLS.depth = tls_depth
+
+        with _ENCODE4JS_LOCK:
+            _ENCODE4JS_PATCH_DEPTH -= 1
+            if _ENCODE4JS_PATCH_DEPTH == 0:
+                lmfit.jsonutils.encode4js = _ENCODE4JS_ORIG
+                lmfit.parameter.encode4js = _ENCODE4JS_ORIG
+                _ENCODE4JS_ORIG = None
+                _ENCODE4JS_PATCHED = None
 
 
 def _dumps_result(result: "lmfit.model.ModelResult") -> str:
