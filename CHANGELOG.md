@@ -1,3 +1,9 @@
+## v0.5.2 (2026-01-01)
+
+### 🐞 Bug Fixes
+
+- **io:** make saving fit results reentrant and thread-safe ([faeb7d7](https://github.com/kmnhan/xarray-lmfit/commit/faeb7d75e1307521c3eeb1b87d79d0cae221dacf))
+
 ## v0.5.1 (2025-11-25)
 
 ### ⚡️ Performance
