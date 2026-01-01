@@ -32,6 +32,7 @@ def _patch_encode4js():
     function multiple times.
     """
     import lmfit.jsonutils
+    import lmfit.model
     import lmfit.parameter
 
     global _ENCODE4JS_PATCH_DEPTH, _ENCODE4JS_ORIG, _ENCODE4JS_PATCHED
@@ -51,6 +52,7 @@ def _patch_encode4js():
 
             _ENCODE4JS_PATCHED = encode4js_new
             lmfit.jsonutils.encode4js = _ENCODE4JS_PATCHED
+            lmfit.model.encode4js = _ENCODE4JS_PATCHED
             lmfit.parameter.encode4js = _ENCODE4JS_PATCHED
 
         _ENCODE4JS_PATCH_DEPTH += 1
@@ -74,6 +76,7 @@ def _patch_encode4js():
             _ENCODE4JS_PATCH_DEPTH -= 1
             if _ENCODE4JS_PATCH_DEPTH == 0:
                 lmfit.jsonutils.encode4js = _ENCODE4JS_ORIG
+                lmfit.model.encode4js = _ENCODE4JS_ORIG
                 lmfit.parameter.encode4js = _ENCODE4JS_ORIG
                 _ENCODE4JS_ORIG = None
                 _ENCODE4JS_PATCHED = None

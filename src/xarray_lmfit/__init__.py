@@ -6,6 +6,6 @@ from xarray_lmfit import modelfit as modelfit
 from xarray_lmfit._io import load_fit, save_fit
 
 try:
-    __version__ = _version("xarray_lmfit")
+    __version__ = _version("xarray-lmfit")
 except Exception:
     __version__ = "0.0.0"
