@@ -1,3 +1,13 @@
+## v0.5.3 (2026-01-01)
+
+### 🐞 Bug Fixes
+
+- **io:** fix performance regression in v0.5.2 ([d8cf3f9](https://github.com/kmnhan/xarray-lmfit/commit/d8cf3f983f450323c8d166fcbb6ee786c81f09e0))
+
+### ⚡️ Performance
+
+- **io:** also patch `model` module for faster saving ([62b9c40](https://github.com/kmnhan/xarray-lmfit/commit/62b9c40c40b42c68e8d00a0c6fd2a94594147c44))
+
 ## v0.5.2 (2026-01-01)
 
 ### 🐞 Bug Fixes
