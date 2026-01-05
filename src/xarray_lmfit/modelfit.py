@@ -87,7 +87,12 @@ def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
     argnames = tuple(da["__dict_keys"].values)
 
     def _reduce_to_param(arr, axis=0):
-        out_arr = np.empty_like(arr.mean(axis=axis), dtype=object)
+        axes = (axis,) if np.isscalar(axis) else tuple(axis)
+        axes = tuple(a if a >= 0 else a + arr.ndim for a in axes)
+        axes_set = set(axes)
+        out_arr = np.empty(
+            tuple(s for i, s in enumerate(arr.shape) if i not in axes_set), dtype=object
+        )
         for i in range(out_arr.size):
             out_arr.flat[i] = {}
 
@@ -97,7 +102,7 @@ def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
                     if par not in out_arr.flat[k]:
                         out_arr.flat[k][par] = {}
 
-                    if np.isfinite(val):
+                    if isinstance(val, str) or np.isfinite(val):
                         out_arr.flat[k][par][name] = val
 
         for i in range(out_arr.size):
