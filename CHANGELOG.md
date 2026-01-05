@@ -1,3 +1,9 @@
+## v0.5.4 (2026-01-05)
+
+### 🐞 Bug Fixes
+
+- **modelfit:** allow passing parameters with expressions as dictionary ([59b20a4](https://github.com/kmnhan/xarray-lmfit/commit/59b20a42b54548acc0a325b3e1f4d9cd73abdc59))
+
 ## v0.5.3 (2026-01-01)
 
 ### 🐞 Bug Fixes
