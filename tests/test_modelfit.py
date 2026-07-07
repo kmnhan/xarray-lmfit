@@ -18,6 +18,10 @@ def power(t, a):
     return np.power(t, a)
 
 
+def linear(x, slope, intercept):
+    return slope * x + intercept
+
+
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_da_modelfit(
@@ -103,6 +107,21 @@ def test_da_modelfit(
 
     assert "a" in fit.param
     assert fit.modelfit_results.dims == ()
+
+
+def test_da_modelfit_skipna_false_best_fit() -> None:
+    x = np.arange(5, dtype=float)
+    da = xr.DataArray(linear(x, 2.0, 1.0), dims="x", coords={"x": x})
+
+    fit = da.xlm.modelfit(
+        coords="x",
+        model=lmfit.Model(linear),
+        params={"slope": 1.0, "intercept": 0.0},
+        skipna=False,
+    )
+
+    assert np.isfinite(fit.modelfit_best_fit).all()
+    np.testing.assert_allclose(fit.modelfit_best_fit, da)
 
 
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])

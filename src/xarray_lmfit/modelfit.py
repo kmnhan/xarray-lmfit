@@ -208,7 +208,7 @@ def _model_fit_wrapper(
             modres.success = False
             return popt, perr, pcov, stats, data, best, modres
     else:
-        mask = np.full_like(y, True)
+        mask = np.ones_like(y, dtype=bool)
 
     x = np.squeeze(x)
 
@@ -301,7 +301,7 @@ def _model_fit_wrapper(
                                 j = param_names.index(var_names[vj])
                                 pcov[i, j] = modres.covar[vi, vj]
 
-            best.flat[mask] = modres.best_fit
+            best.flat[mask] = modres.best_fit  # type: ignore[index, unused-ignore]
 
     return popt, perr, pcov, stats, data, best, modres
 
