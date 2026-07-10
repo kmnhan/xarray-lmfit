@@ -124,6 +124,39 @@ def test_da_modelfit_skipna_false_best_fit() -> None:
     np.testing.assert_allclose(fit.modelfit_best_fit, da)
 
 
+def test_da_modelfit_skipna_multiple_coords() -> None:
+    def plane(x, z, slope_x, slope_z, intercept):
+        return slope_x * x + slope_z * z + intercept
+
+    x = np.arange(6, dtype=float)
+    z = np.array([0.0, 2.0, 1.0, 4.0, 3.0, 1.0])
+    da = xr.DataArray(plane(x, z, 2.0, -0.5, 1.0), dims="point")
+
+    x_coord = xr.DataArray(x, dims="point")
+    z_coord = xr.DataArray(z, dims="point")
+    x_coord[2] = np.nan
+    z_coord[4] = np.nan
+
+    fit = da.xlm.modelfit(
+        coords=[x_coord, z_coord],
+        model=lmfit.Model(plane, independent_vars=["x", "z"]),
+        reduce_dims="point",
+        params={"slope_x": 1.0, "slope_z": 0.0, "intercept": 0.0},
+    )
+
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients,
+        [2.0, -0.5, 1.0],
+        rtol=1e-7,
+        atol=1e-7,
+    )
+    assert np.isnan(fit.modelfit_best_fit[[2, 4]]).all()
+    np.testing.assert_allclose(
+        fit.modelfit_best_fit[[0, 1, 3, 5]],
+        da[[0, 1, 3, 5]],
+    )
+
+
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_ds_modelfit(
