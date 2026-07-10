@@ -331,6 +331,40 @@ def test_modelfit_params(use_dask: bool, progress: bool) -> None:
     np.testing.assert_allclose(fit.modelfit_coefficients, expected, atol=1e-8)
 
 
+def test_modelfit_does_not_deepcopy_parameter_dataarrays() -> None:
+    class UncopyableDataArray(xr.DataArray):
+        __slots__ = ()
+
+        def __deepcopy__(self, memo):
+            raise AssertionError("parameter DataArrays must not be deep-copied")
+
+    def linear_batch(t, slope, intercept):
+        return slope * t + intercept
+
+    t = np.linspace(0, 1, 10)
+    da = xr.DataArray(
+        np.stack([linear_batch(t, 2.0, 1.0), linear_batch(t, -0.5, 3.0)]),
+        dims=("fit", "t"),
+        coords={"fit": [0, 1], "t": t},
+    )
+    slope_guess = UncopyableDataArray(
+        [1.0, -1.0],
+        dims="fit",
+        coords={"fit": da["fit"]},
+    )
+
+    fit = da.xlm.modelfit(
+        "t",
+        model=lmfit.Model(linear_batch),
+        params={"slope": slope_guess, "intercept": 0.0},
+    )
+
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients,
+        [[2.0, 1.0], [-0.5, 3.0]],
+    )
+
+
 def test_modelfit_expr() -> None:
     # Generate 2 lorentzian peaks on linear bkg and add poisson noise
     xval = np.linspace(-1, 1, 250)

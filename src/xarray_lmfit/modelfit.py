@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import copy
 import functools
 import typing
 from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
@@ -68,20 +67,21 @@ def _parse_params(
     # Iterate over all values to check if any DataArrays are present
     for v in _nested_dict_vals(d):
         if isinstance(v, xr.DataArray):
-            return _parse_multiple_params(copy.deepcopy(d))
+            return _parse_multiple_params(d)
 
     # Can be treated as a single lmfit.Parameters object for all fits
     return _ParametersWrapper(lmfit.create_params(**d))
 
 
 def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
-    for k in d:
-        if isinstance(d[k], int | float | complex | xr.DataArray):
-            d[k] = {"value": d[k]}
+    parsed = {}
+    for k, value in d.items():
+        if isinstance(value, int | float | complex | xr.DataArray):
+            value = {"value": value}
 
-        d[k] = _concat_along_keys(_broadcast_dict_values(d[k]), "__dict_keys")
+        parsed[k] = _concat_along_keys(_broadcast_dict_values(value), "__dict_keys")
 
-    da = _concat_along_keys(_broadcast_dict_values(d), "__param_names")
+    da = _concat_along_keys(_broadcast_dict_values(parsed), "__param_names")
 
     pnames = tuple(da["__param_names"].values)
     argnames = tuple(da["__dict_keys"].values)
