@@ -134,6 +134,7 @@ def _model_fit_wrapper(
     skipna: bool,
     guess: bool,
     errors: typing.Literal["raise", "ignore"],
+    output_result: bool,
     model_fit_kwargs: Mapping[str, typing.Any] | None = None,
 ):
     """Top-level wrapper for Model.fit to keep dask graphs picklable."""
@@ -202,6 +203,8 @@ def _model_fit_wrapper(
             weights_ = weights_[mask]
         if not len(y):
             # No data to fit
+            if not output_result:
+                return popt, perr, pcov, stats, data, best
             modres = lmfit.model.ModelResult(
                 model, initial_params, data=y, weights=weights_
             )
@@ -256,6 +259,8 @@ def _model_fit_wrapper(
     except ValueError:
         if errors == "raise":
             raise
+        if not output_result:
+            return popt, perr, pcov, stats, data, best
         modres = lmfit.model.ModelResult(
             model, initial_params, data=y, weights=weights_
         )
@@ -303,7 +308,10 @@ def _model_fit_wrapper(
 
             best.flat[mask] = modres.best_fit  # type: ignore[index, unused-ignore]
 
-    return popt, perr, pcov, stats, data, best, modres
+    outputs = (popt, perr, pcov, stats, data, best)
+    if output_result:
+        return (*outputs, modres)
+    return outputs
 
 
 @register_xlm_dataset_accessor("modelfit")
@@ -319,6 +327,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         skipna: bool,
         guess: bool,
         errors: typing.Literal["raise", "ignore"],
+        output_result: bool,
         model_fit_kwargs: Mapping[str, typing.Any],
     ):
         """Define a picklable wrapper for the model fitting."""
@@ -331,6 +340,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             skipna=skipna,
             guess=guess,
             errors=errors,
+            output_result=output_result,
             model_fit_kwargs=model_fit_kwargs,
         )
 
@@ -358,6 +368,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             skipna=skipna,
             guess=guess,
             errors=errors,
+            output_result=output_result,
             model_fit_kwargs=model_fit_kwargs,
         )
         n_params = len(param_names)
@@ -399,21 +410,26 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 # Core dims for weights
                 input_core_dims.append([d for d in reduce_dims_ if d in weights.dims])
 
-            popt, perr, pcov, stats, data, best, modres = xr.apply_ufunc(
+            output_core_dims: list[list[Hashable]] = [
+                ["param"],
+                ["param"],
+                ["cov_i", "cov_j"],
+                ["fit_stat"],
+                reduce_dims_,
+                reduce_dims_,
+            ]
+            output_dtypes: list[typing.Any] = [np.float64] * 6
+            if output_result:
+                output_core_dims.append([])
+                output_dtypes.append(lmfit.model.ModelResult)
+
+            outputs = xr.apply_ufunc(
                 _wrapper,
                 *args,
                 vectorize=True,
                 dask="parallelized",
                 input_core_dims=input_core_dims,
-                output_core_dims=[
-                    ["param"],
-                    ["param"],
-                    ["cov_i", "cov_j"],
-                    ["fit_stat"],
-                    reduce_dims_,
-                    reduce_dims_,
-                    [],
-                ],
+                output_core_dims=output_core_dims,
                 dask_gufunc_kwargs={
                     "output_sizes": {
                         "param": n_params,
@@ -423,20 +439,13 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                     }
                     | dim_sizes
                 },
-                output_dtypes=(
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    np.float64,
-                    lmfit.model.ModelResult,
-                ),
+                output_dtypes=output_dtypes,
                 exclude_dims=set(reduce_dims_),
             )
+            popt, perr, pcov, stats, data, best = outputs[:6]
 
             if output_result:
-                out[name + "modelfit_results"] = modres
+                out[name + "modelfit_results"] = outputs[6]
 
             out[name + "modelfit_coefficients"] = popt
             out[name + "modelfit_stderr"] = perr
