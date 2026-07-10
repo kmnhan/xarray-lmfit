@@ -157,6 +157,42 @@ def test_da_modelfit_skipna_multiple_coords() -> None:
     )
 
 
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_da_modelfit_without_model_results(
+    use_dask: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dtypes = []
+    apply_ufunc = xr.apply_ufunc
+
+    def capture_output_dtypes(*args, **kwargs):
+        output_dtypes.append(tuple(kwargs["output_dtypes"]))
+        return apply_ufunc(*args, **kwargs)
+
+    monkeypatch.setattr(xr, "apply_ufunc", capture_output_dtypes)
+
+    x = np.arange(5, dtype=float)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), np.full_like(x, np.nan)]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    if use_dask:
+        da = da.chunk({"fit": 1})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={"slope": 1.0, "intercept": 0.0},
+        output_result=False,
+    ).compute()
+
+    assert output_dtypes == [(np.float64,) * 6]
+    assert "modelfit_results" not in fit
+    assert all(variable.dtype != object for variable in fit.data_vars.values())
+    np.testing.assert_allclose(fit.modelfit_coefficients[0], [2.0, 1.0])
+    assert np.isnan(fit.modelfit_coefficients[1]).all()
+
+
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_ds_modelfit(
