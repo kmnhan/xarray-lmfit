@@ -2,6 +2,7 @@ import tempfile
 
 import lmfit
 import numpy as np
+import pytest
 import xarray as xr
 
 from xarray_lmfit import load_fit, save_fit
@@ -39,6 +40,49 @@ def test_darr_io() -> None:
             loaded_ds.drop_vars("modelfit_results"),
             result_ds.drop_vars("modelfit_results"),
         )
+
+
+@pytest.mark.parametrize(
+    "use_client", [False, True], ids=["local-scheduler", "distributed-client"]
+)
+def test_darr_io_dask(use_client: bool) -> None:
+    client = None
+    if use_client:
+        from dask.distributed import Client
+
+        client = Client(n_workers=1, threads_per_worker=1)
+
+    x = np.linspace(0, 10, 50)
+    y = np.stack([2.0 * x + 1.0, -0.5 * x + 3.0])
+    y_arr = xr.DataArray(
+        y,
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    ).chunk({"fit": 1})
+
+    model = lmfit.models.LinearModel()
+    result_ds = y_arr.xlm.modelfit(
+        "x",
+        model=model,
+        params=model.make_params(slope=1.0, intercept=0.0),
+    )
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".nc") as tmp:
+            save_fit(result_ds, tmp.name)
+            loaded_ds = load_fit(tmp.name)
+
+        assert all(
+            isinstance(result.item(), lmfit.model.ModelResult)
+            for result in loaded_ds["modelfit_results"]
+        )
+        xr.testing.assert_identical(
+            loaded_ds.drop_vars("modelfit_results"),
+            result_ds.drop_vars("modelfit_results").compute(),
+        )
+    finally:
+        if client is not None:
+            client.shutdown()
 
 
 def test_ds_io() -> None:

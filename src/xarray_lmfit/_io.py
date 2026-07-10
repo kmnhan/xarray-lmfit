@@ -2,8 +2,11 @@ import contextlib
 import os
 import threading
 import typing
+import warnings
 from collections.abc import Callable
 
+import numpy as np
+import numpy.typing as npt
 import xarray as xr
 
 if typing.TYPE_CHECKING:
@@ -19,6 +22,10 @@ _ENCODE4JS_PATCH_DEPTH: int = 0
 _ENCODE4JS_ORIG: Callable | None = None
 _ENCODE4JS_PATCHED: Callable | None = None
 _ENCODE4JS_TLS: threading.local = threading.local()
+_SCIPY_DISTRIBUTED_WRITE_ERROR = (
+    "Writing netCDF files with the scipy backend is not currently supported with "
+    "dask's distributed scheduler"
+)
 
 
 @contextlib.contextmanager
@@ -82,8 +89,15 @@ def _patch_encode4js():
                 _ENCODE4JS_PATCHED = None
 
 
-def _dumps_result(result: "lmfit.model.ModelResult") -> str:
-    return result.dumps()
+def _dumps_results(
+    results: npt.NDArray[np.object_],
+) -> npt.NDArray[np.object_]:
+    """Serialize one eager or dask block of model results."""
+    output = np.empty(results.shape, dtype=object)
+    with _patch_encode4js():
+        for i, result in enumerate(results.flat):
+            output.flat[i] = result.dumps()
+    return output
 
 
 def _loads_result(s: str, funcdefs: dict | None = None) -> "lmfit.model.ModelResult":
@@ -136,13 +150,28 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
         for var in ds.data_vars:
             if str(var).endswith("modelfit_results"):
                 ds[var] = xr.apply_ufunc(
-                    _dumps_result,
+                    _dumps_results,
                     ds[var],
-                    vectorize=True,
-                    output_dtypes=[str],
+                    dask="parallelized",
+                    output_dtypes=[object],
                 )
 
-    ds.to_netcdf(path, **kwargs)
+        # Serialized JSON strings have data-dependent lengths, so a fixed-width dask
+        # dtype would either truncate them or waste substantial memory. The backend
+        # intentionally inspects the object array once to select a safe string dtype.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"variable .*modelfit_results has data in the form of a dask "
+                r"array with dtype=object.*",
+                category=xr.SerializationWarning,
+            )
+            try:
+                ds.to_netcdf(path, **kwargs)
+            except NotImplementedError as e:
+                if _SCIPY_DISTRIBUTED_WRITE_ERROR not in str(e):
+                    raise
+                ds.compute().to_netcdf(path, **kwargs)
 
 
 def load_fit(
