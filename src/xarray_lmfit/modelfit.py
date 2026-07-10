@@ -195,7 +195,7 @@ def _model_fit_wrapper(
     y: npt.NDArray = Y.ravel()
 
     if skipna:
-        mask = np.all([np.any(~np.isnan(x), axis=0), ~np.isnan(y)], axis=0)
+        mask = ~np.isnan(y) & ~np.isnan(x).any(axis=0)
         x = x[:, mask]
         y = y[mask]
         if weights_ is not None and not np.isscalar(weights_):
