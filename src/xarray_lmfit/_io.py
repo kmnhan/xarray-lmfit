@@ -145,6 +145,13 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
         Function to load the saved fit results.
 
     """
+    if not kwargs.get("compute", True):
+        raise ValueError(
+            "save_fit does not support compute=False because deferred NetCDF writes "
+            "cannot serialize lazy model results consistently. Pass a lazy result "
+            "with the default compute=True to evaluate it once before writing."
+        )
+
     ds = result_ds.copy()
     result_vars = [var for var in ds.data_vars if str(var).endswith("modelfit_results")]
     has_lazy_results = any(ds[var].chunks is not None for var in result_vars)
