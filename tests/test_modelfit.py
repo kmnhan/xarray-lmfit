@@ -124,6 +124,61 @@ def test_da_modelfit_skipna_false_best_fit() -> None:
     np.testing.assert_allclose(fit.modelfit_best_fit, da)
 
 
+@pytest.mark.parametrize("skipna", [True, False], ids=["skipna", "keep-nan"])
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no-dask"])
+def test_da_modelfit_complete_multidimensional_core(
+    skipna: bool, use_dask: bool
+) -> None:
+    full_coord = np.arange(12.0).reshape(2, 6)
+    coord = full_coord[:, ::2]
+    da = xr.DataArray(linear(full_coord, 2.0, 1.0), dims=("row", "column")).isel(
+        column=slice(None, None, 2)
+    )
+    if use_dask:
+        da = da.chunk({"row": -1, "column": -1})
+
+    fit = da.xlm.modelfit(
+        coords=xr.DataArray(coord, dims=da.dims),
+        reduce_dims=da.dims,
+        model=lmfit.Model(linear),
+        params={"slope": 1.0, "intercept": 0.0},
+        weights=np.ones_like(coord),
+        skipna=skipna,
+        output_result=False,
+    ).compute()
+
+    np.testing.assert_allclose(fit.modelfit_coefficients, [2.0, 1.0])
+    np.testing.assert_allclose(fit.modelfit_best_fit, da)
+
+
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no-dask"])
+def test_da_modelfit_single_coord_mask_aligns_weights(use_dask: bool) -> None:
+    coord = np.arange(7.0)
+    values = linear(coord, 2.0, 1.0)
+    coord[1] = np.nan
+    values[4] = np.nan
+    da = xr.DataArray(values, dims="point")
+    if use_dask:
+        da = da.chunk({"point": -1})
+
+    fit = da.xlm.modelfit(
+        coords=xr.DataArray(coord, dims="point"),
+        reduce_dims="point",
+        model=lmfit.Model(linear),
+        params={"slope": 1.0, "intercept": 0.0},
+        weights=np.arange(1.0, 8.0),
+        output_result=False,
+    ).compute()
+
+    np.testing.assert_allclose(fit.modelfit_coefficients, [2.0, 1.0])
+    assert fit.modelfit_stats.sel(fit_stat="ndata") == 5
+    assert np.isnan(fit.modelfit_best_fit[[1, 4]]).all()
+    np.testing.assert_allclose(
+        fit.modelfit_best_fit[[0, 2, 3, 5, 6]],
+        linear(np.array([0.0, 2.0, 3.0, 5.0, 6.0]), 2.0, 1.0),
+    )
+
+
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_da_modelfit_integer_best_fit(use_dask: bool) -> None:
     x = np.arange(5.0)

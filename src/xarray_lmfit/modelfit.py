@@ -209,7 +209,11 @@ def _model_fit_wrapper(
     stats = np.full([n_stats], np.nan)
     best = np.full(Y.shape, np.nan, dtype=np.float64)
 
-    x = np.vstack([c.ravel() for c in coords__])
+    single_coord = n_coords == 1
+    if single_coord:
+        x = coords__[0].ravel()
+    else:
+        x = np.vstack([c.ravel() for c in coords__])
     y: npt.NDArray = Y.ravel()
 
     if isinstance(weights_, np.ndarray) and weights_.size != y.size:
@@ -218,14 +222,21 @@ def _model_fit_wrapper(
             f"received {weights_.size} weights for {y.size} data points"
         )
 
+    mask: npt.NDArray[np.bool_] | None = None
     if skipna:
-        mask = ~np.isnan(y) & ~np.isnan(x).any(axis=0)
-        x = x[:, mask]
-        y = y[mask]
-        if isinstance(weights_, np.ndarray):
-            weights_ = weights_[mask]
-    else:
-        mask = np.ones_like(y, dtype=bool)
+        mask = ~np.isnan(y)
+        if single_coord:
+            mask &= ~np.isnan(x)
+        else:
+            mask &= ~np.isnan(x).any(axis=0)
+
+        if mask.all():
+            mask = None
+        else:
+            x = x[mask] if single_coord else x[:, mask]
+            y = y[mask]
+            if isinstance(weights_, np.ndarray):
+                weights_ = weights_[mask]
 
     x = np.squeeze(x)
 
@@ -328,7 +339,10 @@ def _model_fit_wrapper(
                                 j = param_names.index(var_names[vj])
                                 pcov[i, j] = modres.covar[vi, vj]
 
-            best.flat[mask] = modres.best_fit  # type: ignore[index, unused-ignore]
+            if mask is None:
+                best.flat[:] = modres.best_fit
+            else:
+                best.flat[mask] = modres.best_fit  # type: ignore[index, unused-ignore]
 
     outputs = (popt, perr, pcov, stats, best)
     if output_result:
