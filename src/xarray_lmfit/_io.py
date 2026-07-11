@@ -146,15 +146,25 @@ def save_fit(result_ds: xr.Dataset, path: str | os.PathLike, **kwargs) -> None:
 
     """
     ds = result_ds.copy()
+    result_vars = [var for var in ds.data_vars if str(var).endswith("modelfit_results")]
+    has_lazy_results = any(ds[var].chunks is not None for var in result_vars)
+
     with _patch_encode4js():
-        for var in ds.data_vars:
-            if str(var).endswith("modelfit_results"):
-                ds[var] = xr.apply_ufunc(
-                    _dumps_results,
-                    ds[var],
-                    dask="parallelized",
-                    output_dtypes=[object],
-                )
+        for var in result_vars:
+            ds[var] = xr.apply_ufunc(
+                _dumps_results,
+                ds[var],
+                dask="parallelized",
+                output_dtypes=[object],
+            )
+
+        # NetCDF backends inspect object arrays eagerly to determine a string dtype. If
+        # that inspection and the subsequent write evaluate the shared fitting graph
+        # independently, every fit runs twice and stateful models can produce an
+        # inconsistent snapshot. Persist every output in one shared computation while
+        # retaining the chunks/futures used by the backend write.
+        if has_lazy_results:
+            ds = ds.persist()
 
         # Serialized JSON strings have data-dependent lengths, so a fixed-width dask
         # dtype would either truncate them or waste substantial memory. The backend
