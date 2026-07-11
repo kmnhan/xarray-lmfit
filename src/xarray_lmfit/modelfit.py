@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import typing
 from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
@@ -29,69 +30,6 @@ else:
     lmfit = _lazy.load("lmfit")
 
 
-def _nested_dict_vals(d) -> Iterable[typing.Any]:
-    """Recursively yield all "leaf" values in a nested dictionary."""
-    for v in d.values():
-        if isinstance(v, Mapping):
-            yield from _nested_dict_vals(v)
-        else:
-            yield v
-
-
-def _parse_params(
-    d: dict[str, typing.Any] | lmfit.Parameters,
-) -> xr.DataArray | _ParametersWrapper:
-    if isinstance(d, lmfit.Parameters):
-        # Input to apply_ufunc cannot be a Mapping, so wrap in a class
-        return _ParametersWrapper(d)
-
-    # Iterate over all values to check if any DataArrays are present
-    for v in _nested_dict_vals(d):
-        if isinstance(v, xr.DataArray):
-            return _parse_multiple_params(d)
-
-    # Can be treated as a single lmfit.Parameters object for all fits
-    return _ParametersWrapper(lmfit.create_params(**d))
-
-
-def _build_params_from_values(
-    *values: typing.Any, keys: Sequence[tuple[str, str]]
-) -> lmfit.Parameters:
-    parsed: dict[str, dict[str, typing.Any]] = {}
-    for (param_name, attr_name), value in zip(keys, values, strict=True):
-        try:
-            is_missing = bool(np.isnan(value))
-        except TypeError:
-            is_missing = False
-
-        if not is_missing:
-            parsed.setdefault(param_name, {})[attr_name] = value
-
-    return lmfit.create_params(**parsed)
-
-
-def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
-    keys: list[tuple[str, str]] = []
-    values: list[xr.DataArray] = []
-    for param_name, value in d.items():
-        attrs = value if isinstance(value, Mapping) else {"value": value}
-        for attr_name, attr_value in attrs.items():
-            keys.append((param_name, attr_name))
-            if isinstance(attr_value, xr.DataArray):
-                values.append(attr_value)
-            else:
-                values.append(xr.DataArray(attr_value))
-
-    return xr.apply_ufunc(
-        functools.partial(_build_params_from_values, keys=tuple(keys)),
-        *values,
-        vectorize=True,
-        dask="parallelized",
-        output_dtypes=[object],
-        join="outer",
-    )
-
-
 class _ParametersWrapper:
     """Wrapper class to pass lmfit.Parameters through xarray.apply_ufunc.
 
@@ -102,6 +40,187 @@ class _ParametersWrapper:
     def __init__(self, params: lmfit.Parameters, *, complete: bool = False) -> None:
         self.params = params
         self.complete = complete
+
+
+_ParameterSpecs = tuple[
+    tuple[str, tuple[tuple[str, typing.Any], ...]],
+    ...,
+]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ParameterPlan:
+    """Picklable instructions for constructing parameters inside a fit task."""
+
+    mode: typing.Literal["static", "broadcast", "object"]
+    template: _ParametersWrapper | None = None
+    template_specs: _ParameterSpecs = ()
+    static_specs: _ParameterSpecs = ()
+    dynamic_keys: tuple[tuple[str, str], ...] = ()
+    parameter_names: tuple[str, ...] = ()
+    base_names: tuple[str, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class _ParameterInputs:
+    """Parameter plan plus xarray inputs that participate in task alignment."""
+
+    plan: _ParameterPlan
+    arrays: tuple[xr.DataArray, ...] = ()
+
+
+def _parse_params(
+    d: dict[str, typing.Any] | lmfit.Parameters,
+) -> _ParameterInputs:
+    if isinstance(d, lmfit.Parameters):
+        return _ParameterInputs(
+            _ParameterPlan(mode="static", template=_ParametersWrapper(d))
+        )
+
+    static_specs: dict[str, list[tuple[str, typing.Any]]] = {}
+    dynamic_keys: list[tuple[str, str]] = []
+    dynamic_arrays: list[xr.DataArray] = []
+    for param_name, value in d.items():
+        attrs = value if isinstance(value, Mapping) else {"value": value}
+        for attr_name, attr_value in attrs.items():
+            if isinstance(attr_value, xr.DataArray):
+                dynamic_keys.append((param_name, attr_name))
+                dynamic_arrays.append(attr_value)
+            elif not _is_missing_parameter_attr(attr_value):
+                static_specs.setdefault(param_name, []).append((attr_name, attr_value))
+
+    if not dynamic_arrays:
+        return _ParameterInputs(
+            _ParameterPlan(
+                mode="static", template=_ParametersWrapper(lmfit.create_params(**d))
+            )
+        )
+
+    dynamic_param_names = {param_name for param_name, _ in dynamic_keys}
+    has_static_expression = any(
+        attr_name == "expr" and attr_value is not None
+        for attrs in static_specs.values()
+        for attr_name, attr_value in attrs
+    )
+    if has_static_expression:
+        # Expressions can reference dynamically supplied auxiliary parameters, so all
+        # supplied attributes must be created together inside each fit task.
+        template_specs = {}
+    else:
+        template_specs = {
+            name: attrs
+            for name, attrs in static_specs.items()
+            if name not in dynamic_param_names
+        }
+        static_specs = {
+            name: attrs
+            for name, attrs in static_specs.items()
+            if name in dynamic_param_names
+        }
+
+    aligned_arrays = xr.align(*dynamic_arrays, join="outer", copy=False)
+    return _ParameterInputs(
+        _ParameterPlan(
+            mode="broadcast",
+            template_specs=tuple(
+                (name, tuple(attrs)) for name, attrs in template_specs.items()
+            ),
+            static_specs=tuple(
+                (name, tuple(attrs)) for name, attrs in static_specs.items()
+            ),
+            dynamic_keys=tuple(dynamic_keys),
+            parameter_names=tuple(d),
+        ),
+        aligned_arrays,
+    )
+
+
+def _is_missing_parameter_attr(value: typing.Any) -> bool:
+    try:
+        return bool(np.isnan(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _params_from_specs(specs: _ParameterSpecs) -> lmfit.Parameters:
+    return lmfit.create_params(
+        **{name: dict(parameter_specs) for name, parameter_specs in specs}
+    )
+
+
+def _materialize_broadcast_params(
+    plan: _ParameterPlan,
+    values: Sequence[typing.Any],
+    *,
+    guess: bool,
+) -> _ParametersWrapper:
+    supplied_specs = {name: dict(attrs) for name, attrs in plan.static_specs}
+    for (param_name, attr_name), value in zip(plan.dynamic_keys, values, strict=True):
+        if not _is_missing_parameter_attr(value):
+            supplied_specs.setdefault(param_name, {})[attr_name] = value
+    supplied_specs = {
+        name: supplied_specs[name]
+        for name in plan.parameter_names
+        if name in supplied_specs
+    }
+
+    if plan.template is None:
+        raise RuntimeError("broadcast parameter template was not initialized")
+    if not supplied_specs:
+        return plan.template
+
+    params = plan.template.params.copy()
+    per_fit_specs = tuple(
+        (name, tuple(attrs.items())) for name, attrs in supplied_specs.items()
+    )
+    params.update(_params_from_specs(per_fit_specs))
+    # Updating a prebuilt template can append dynamic auxiliary parameters after
+    # static ones. Restore their input order without rebinding the Parameters.
+    for name in plan.parameter_names:
+        if name not in plan.base_names and name in params:
+            parameter = dict.pop(params, name)
+            dict.__setitem__(params, name, parameter)
+    return _ParametersWrapper(params, complete=not guess)
+
+
+def _align_parameter_chunks(
+    data: xr.DataArray, arrays: Sequence[xr.DataArray]
+) -> tuple[xr.DataArray, ...]:
+    """Match lazy parameter chunks to data chunks without global rechunking."""
+    target_chunks: dict[Hashable, tuple[int, ...]] = {}
+    if data.chunks is not None:
+        target_chunks.update(data.chunksizes)
+
+    for array in arrays:
+        if array.chunks is not None:
+            for dim, dim_chunks in array.chunksizes.items():
+                target_chunks.setdefault(dim, dim_chunks)
+
+    aligned: list[xr.DataArray] = []
+    for array in arrays:
+        if array.chunks is None:
+            if data.chunks is not None and array.dims:
+                eager_chunks = {
+                    dim: target_chunks.get(dim, (array.sizes[dim],))
+                    for dim in array.dims
+                    if sum(target_chunks.get(dim, (array.sizes[dim],)))
+                    == array.sizes[dim]
+                }
+                aligned.append(array.chunk(eager_chunks))
+                continue
+            aligned.append(array)
+            continue
+
+        rechunk = {
+            dim: target_chunks[dim]
+            for dim in array.dims
+            if dim in target_chunks
+            and sum(target_chunks[dim]) == array.sizes[dim]
+            and array.chunksizes[dim] != target_chunks[dim]
+        }
+        aligned.append(array.chunk(rechunk) if rechunk else array)
+
+    return tuple(aligned)
 
 
 def _make_failed_model_result(
@@ -137,6 +256,7 @@ def _model_fit_wrapper(
     param_names: Sequence[str],
     stat_names: Sequence[str],
     n_coords: int,
+    parameter_plan: _ParameterPlan,
     skipna: bool,
     guess: bool,
     errors: typing.Literal["raise", "ignore"],
@@ -148,12 +268,30 @@ def _model_fit_wrapper(
     n_stats = len(stat_names)
 
     coords__ = args[:n_coords]
-    init_params_ = args[n_coords]
+    if parameter_plan.mode == "broadcast":
+        n_parameter_inputs = len(parameter_plan.dynamic_keys)
+    elif parameter_plan.mode == "object":
+        n_parameter_inputs = 1
+    else:
+        n_parameter_inputs = 0
+    parameter_values = args[n_coords : n_coords + n_parameter_inputs]
+
+    if parameter_plan.mode == "static":
+        if parameter_plan.template is None:
+            raise RuntimeError("static parameter template was not initialized")
+        init_params_: typing.Any = parameter_plan.template
+    elif parameter_plan.mode == "broadcast":
+        init_params_ = _materialize_broadcast_params(
+            parameter_plan, parameter_values, guess=guess
+        )
+    else:
+        init_params_ = parameter_values[0]
 
     fit_kwargs = dict(model_fit_kwargs) if model_fit_kwargs is not None else {}
-    if len(args) > n_coords + 1:
+    weight_arg_index = n_coords + n_parameter_inputs
+    if len(args) > weight_arg_index:
         fit_kwargs.pop("weights", None)
-        raw_weights = args[n_coords + 1]
+        raw_weights = args[weight_arg_index]
     else:
         raw_weights = fit_kwargs.pop("weights", None)
 
@@ -186,7 +324,7 @@ def _model_fit_wrapper(
         other = init_params_.params
 
         if isinstance(other, lmfit.Parameters):
-            initial_params.update(other)
+            initial_params.update(other.copy())
         else:
             # Instance check may fail in multiprocess, so forcibly set class
             # This no longer triggers in CI in python 3.14+, presumably due to
@@ -212,7 +350,7 @@ def _model_fit_wrapper(
         initial_params.update(lmfit.Parameters().loads(init_params_))
 
     elif isinstance(init_params_, lmfit.Parameters):
-        initial_params.update(init_params_)
+        initial_params.update(init_params_.copy())
 
     elif isinstance(init_params_, Mapping):
         param_specs = {
@@ -388,6 +526,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         param_names: list[str],
         stat_names: list[str],
         n_coords: int,
+        parameter_plan: _ParameterPlan,
         skipna: bool,
         guess: bool,
         errors: typing.Literal["raise", "ignore"],
@@ -401,6 +540,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             param_names=param_names,
             stat_names=stat_names,
             n_coords=n_coords,
+            parameter_plan=parameter_plan,
             skipna=skipna,
             guess=guess,
             errors=errors,
@@ -411,7 +551,7 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
     def _define_output_wrapper(
         self,
         model: lmfit.Model,
-        params: xr.Dataset | xr.DataArray | _ParametersWrapper,
+        params: xr.Dataset | _ParameterInputs,
         reduce_dims_: list[Hashable],
         coords_,
         param_names: list[str],
@@ -419,22 +559,10 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         output_result: bool,
         skipna: bool,
         guess: bool,
-        is_dask: bool,
         errors: typing.Literal["raise", "ignore"],
         model_fit_kwargs: Mapping[str, typing.Any],
         weight_da: xr.DataArray | None,
     ) -> typing.Callable:
-        _wrapper = self._define_wrapper(
-            model=model,
-            param_names=param_names,
-            stat_names=stat_names,
-            n_coords=len(coords_),
-            skipna=skipna,
-            guess=guess,
-            errors=errors,
-            output_result=output_result,
-            model_fit_kwargs=model_fit_kwargs,
-        )
         n_params = len(param_names)
         n_stats = len(stat_names)
         dim_sizes = {dim: self._obj.coords[dim].size for dim in reduce_dims_}
@@ -444,28 +572,38 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
 
             # Select parameters for this data variable
             if not isinstance(params, xr.Dataset):
-                params_to_apply = params
+                parameter_inputs = params
             else:
                 try:
                     params_to_apply = params[name.removesuffix("_")]
                 except KeyError:
                     params_to_apply = params[float(name.removesuffix("_"))]
-
-            if isinstance(params_to_apply, xr.DataArray) and is_dask:
-                # TODO: check whether this works with chunked datasets
-                # Since dask cannot auto-rechunk object arrays, rechunk to single chunk
-                params_to_apply = params_to_apply.chunk(
-                    dict.fromkeys(params_to_apply.dims, -1)
+                parameter_inputs = _ParameterInputs(
+                    _ParameterPlan(mode="object"), (params_to_apply,)
                 )
 
+            parameter_arrays = _align_parameter_chunks(da, parameter_inputs.arrays)
+            _wrapper = self._define_wrapper(
+                model=model,
+                param_names=param_names,
+                stat_names=stat_names,
+                n_coords=len(coords_),
+                parameter_plan=parameter_inputs.plan,
+                skipna=skipna,
+                guess=guess,
+                errors=errors,
+                output_result=output_result,
+                model_fit_kwargs=model_fit_kwargs,
+            )
+
             # Positional arguments to wrapper
-            args = [da, *coords_, params_to_apply]
+            args = [da, *coords_, *parameter_arrays]
 
             # Core dims for data & coords
             input_core_dims = [reduce_dims_ for _ in range(len(coords_) + 1)]
 
             # Core dims for parameters
-            input_core_dims.append([])
+            input_core_dims.extend([] for _ in parameter_arrays)
 
             if isinstance(weight_da, xr.DataArray):
                 weights = weight_da.broadcast_like(da)
@@ -661,19 +799,53 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         if params is None:
             params = lmfit.create_params()
 
-        is_dask: bool = bool(self._obj.chunks)
-
         if not isinstance(params, xr.Dataset) and isinstance(params, Mapping):
             # Given as a mapping from str to ...
             # float or DataArray or dict of str to Any (including DataArray of Any)
             params = _parse_params(params)
-            # Now, params is either a _ParametersWrapper or a DataArray of Parameters
+        elif isinstance(params, xr.DataArray):
+            params = _ParameterInputs(_ParameterPlan(mode="object"), (params,))
+        elif isinstance(params, _ParametersWrapper):
+            params = _ParameterInputs(_ParameterPlan(mode="static", template=params))
 
         model_params: lmfit.Parameters | None = None
-        if isinstance(params, _ParametersWrapper) and not guess:
+        if (
+            isinstance(params, _ParameterInputs)
+            and params.plan.mode in {"static", "broadcast"}
+            and not guess
+        ):
             model_params = model.make_params()
-            model_params.update(params.params)
-            params = _ParametersWrapper(model_params, complete=True)
+            base_names = tuple(model_params)
+            if params.plan.mode == "static":
+                if params.plan.template is None:
+                    raise RuntimeError("static parameter template was not initialized")
+                # Parameters.update() rebinds each Parameter to its destination's
+                # expression evaluator, so never update from caller-owned objects.
+                model_params.update(params.plan.template.params.copy())
+            elif params.plan.template_specs:
+                model_params.update(_params_from_specs(params.plan.template_specs))
+            params = dataclasses.replace(
+                params,
+                plan=dataclasses.replace(
+                    params.plan,
+                    template=_ParametersWrapper(model_params, complete=True),
+                    base_names=base_names,
+                ),
+            )
+        elif (
+            isinstance(params, _ParameterInputs)
+            and params.plan.mode == "broadcast"
+            and guess
+        ):
+            params = dataclasses.replace(
+                params,
+                plan=dataclasses.replace(
+                    params.plan,
+                    template=_ParametersWrapper(
+                        _params_from_specs(params.plan.template_specs)
+                    ),
+                ),
+            )
 
         reduce_dims_: list[Hashable]
         if not reduce_dims:
@@ -709,14 +881,17 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             )
 
         # Check that initial guess and bounds only contain coords in preserved_dims
-        if isinstance(params, xr.DataArray | xr.Dataset):
-            unexpected = set(params.dims) - set(preserved_dims)
-            if unexpected:
-                raise ValueError(
-                    f"Parameters object has unexpected dimensions {tuple(unexpected)}. "
-                    "It should only have dimensions that are in data dimensions "
-                    f"{preserved_dims}."
-                )
+        if isinstance(params, xr.Dataset):
+            parameter_dims = set(params.dims)
+        else:
+            parameter_dims = {dim for array in params.arrays for dim in array.dims}
+        unexpected = parameter_dims - set(preserved_dims)
+        if unexpected:
+            raise ValueError(
+                f"Parameters object has unexpected dimensions {tuple(unexpected)}. "
+                "It should only have dimensions that are in data dimensions "
+                f"{preserved_dims}."
+            )
 
         if errors not in ["raise", "ignore"]:
             raise ValueError('errors must be either "raise" or "ignore"')
@@ -763,7 +938,6 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             output_result=output_result,
             skipna=skipna,
             guess=guess,
-            is_dask=is_dask,
             errors=errors,
             model_fit_kwargs=model_fit_kwargs,
             weight_da=weight_da,

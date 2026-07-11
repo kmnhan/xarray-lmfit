@@ -403,6 +403,7 @@ def test_failed_results_do_not_share_static_parameter_template() -> None:
         coords={"fit": [0, 1], "x": x},
     )
     supplied = lmfit.create_params(slope=1.0, intercept=0.0)
+    assert supplied["slope"]._expr_eval is supplied._asteval
 
     fit = da.xlm.modelfit(
         "x",
@@ -414,6 +415,7 @@ def test_failed_results_do_not_share_static_parameter_template() -> None:
     first.params["slope"].value = 10.0
     assert second.params["slope"].value == 1.0
     assert supplied["slope"].value == 1.0
+    assert supplied["slope"]._expr_eval is supplied._asteval
 
 
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
@@ -645,6 +647,349 @@ def test_modelfit_lazy_broadcast_params() -> None:
         fit.compute().modelfit_coefficients,
         [[0.0, 5.0], [0.0, 1.0]],
     )
+
+
+def test_modelfit_broadcast_parameter_chunks_follow_data() -> None:
+    x = np.arange(5.0)
+    slopes = np.arange(1.0, 7.0)
+    da = xr.DataArray(
+        np.stack([linear(x, slope, 1.0) for slope in slopes]),
+        dims=("fit", "x"),
+        coords={"fit": np.arange(slopes.size), "x": x},
+    ).chunk({"fit": 3, "x": -1})
+    slope_guess = xr.DataArray(
+        np.zeros(slopes.size), dims="fit", coords={"fit": da.fit}
+    ).chunk({"fit": 1})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={"slope": slope_guess, "intercept": 0.0},
+        output_result=False,
+    )
+
+    assert fit.modelfit_coefficients.chunks == ((3, 3), (2,))
+    graph = fit.modelfit_coefficients.data.__dask_graph__()
+    assert all(
+        len(layer) > 1
+        for name, layer in graph.layers.items()
+        if name.startswith("rechunk-merge")
+    )
+    np.testing.assert_allclose(
+        fit.compute().modelfit_coefficients.sel(param="slope"), slopes
+    )
+
+
+def test_modelfit_object_parameter_chunks_follow_data() -> None:
+    x = np.arange(5.0)
+    slopes = np.arange(1.0, 7.0)
+    da = xr.DataArray(
+        np.stack([linear(x, slope, 1.0) for slope in slopes]),
+        dims=("fit", "x"),
+        coords={"fit": np.arange(slopes.size), "x": x},
+    ).chunk({"fit": 3, "x": -1})
+    specs = np.empty(slopes.size, dtype=object)
+    specs[:] = [{"slope": 0.0, "intercept": 0.0}] * slopes.size
+    params = xr.DataArray(specs, dims="fit", coords={"fit": da.fit}).chunk({"fit": 1})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params=params,
+        output_result=False,
+    )
+
+    assert fit.modelfit_coefficients.chunks == ((3, 3), (2,))
+    np.testing.assert_allclose(
+        fit.compute().modelfit_coefficients.sel(param="slope"), slopes
+    )
+
+
+def test_modelfit_broadcast_params_preserve_outer_alignment() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 10.0)] * 3),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1, 2], "x": x},
+    )
+    model = lmfit.Model(linear)
+    model.set_param_hint("slope", value=5.0)
+    model.set_param_hint("intercept", value=10.0)
+    slope = xr.DataArray([2.0, 4.0], dims="fit", coords={"fit": [0, 1]})
+    intercept = xr.DataArray([1.0, 3.0], dims="fit", coords={"fit": [1, 2]})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=model,
+        params={"slope": slope, "intercept": intercept},
+    )
+
+    initial_values = np.array(
+        [
+            [result.init_params["slope"].value, result.init_params["intercept"].value]
+            for result in fit.modelfit_results.values
+        ]
+    )
+    np.testing.assert_allclose(initial_values, [[2.0, 10.0], [4.0, 1.0], [5.0, 3.0]])
+
+
+@pytest.mark.parametrize("guess", [False, True])
+def test_modelfit_broadcast_params_omit_static_nan(guess: bool) -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 10.0)] * 2),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    model = lmfit.Model(linear)
+    model.set_param_hint("intercept", value=10.0)
+    slope = xr.DataArray([2.0, 2.0], dims="fit", coords={"fit": da.fit})
+
+    if guess:
+        with pytest.warns(UserWarning, match="`guess` is not implemented"):
+            fit = da.xlm.modelfit(
+                "x",
+                model=model,
+                params={"slope": slope, "intercept": np.nan},
+                guess=True,
+            )
+    else:
+        fit = da.xlm.modelfit(
+            "x",
+            model=model,
+            params={"slope": slope, "intercept": np.nan},
+        )
+
+    assert all(
+        result.init_params["intercept"].value == 10.0
+        for result in fit.modelfit_results.values
+    )
+
+
+def test_modelfit_broadcast_partial_attribute_replaces_model_hint() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.full((2, x.size), np.nan),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    model = lmfit.Model(linear)
+    model.set_param_hint("slope", value=7.0, min=1.0, max=9.0, vary=False)
+    minimum = xr.DataArray([3.0, np.nan], dims="fit", coords={"fit": da.fit})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=model,
+        params={"slope": {"min": minimum}},
+    )
+
+    replaced = fit.modelfit_results.values[0].init_params["slope"]
+    preserved = fit.modelfit_results.values[1].init_params["slope"]
+    assert (replaced.value, replaced.min, replaced.max, replaced.vary) == (
+        3.0,
+        3.0,
+        np.inf,
+        True,
+    )
+    assert (preserved.value, preserved.min, preserved.max, preserved.vary) == (
+        7.0,
+        1.0,
+        9.0,
+        False,
+    )
+
+
+def test_modelfit_broadcast_params_preserve_auxiliary_order() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.full((2, x.size), np.nan),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    dynamic_aux = xr.DataArray([1.0, 2.0], dims="fit", coords={"fit": da.fit})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={
+            "dynamic_aux": {"value": dynamic_aux, "vary": False},
+            "static_aux": {"value": 3.0, "vary": False},
+        },
+    )
+
+    for result in fit.modelfit_results.values:
+        assert list(result.init_params) == [
+            "slope",
+            "intercept",
+            "dynamic_aux",
+            "static_aux",
+        ]
+
+
+def test_modelfit_broadcast_auxiliary_expression_parameter() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 3.0), linear(x, 2.0, 4.0)]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    ).chunk({"fit": 1, "x": -1})
+    delta = xr.DataArray([1.0, 2.0], dims="fit", coords={"fit": da.fit}).chunk(
+        {"fit": 1}
+    )
+    params = {
+        "slope": 2.0,
+        "delta": delta,
+        "intercept": {"expr": "slope + delta"},
+    }
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params=params,
+        param_names=["slope", "intercept", "delta"],
+        output_result=False,
+    ).compute()
+
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients, [[2.0, 3.0, 1.0], [2.0, 4.0, 2.0]]
+    )
+    assert "is_init_value" not in params["intercept"]
+
+
+def test_modelfit_broadcast_params_across_dimensions() -> None:
+    x = np.arange(5.0)
+    slopes = xr.DataArray([1.0, 2.0], dims="row").chunk({"row": 1})
+    intercepts = xr.DataArray([10.0, 20.0, 30.0], dims="column").chunk({"column": 1})
+    values = (
+        slopes.compute().values[:, np.newaxis, np.newaxis] * x
+        + intercepts.compute().values[np.newaxis, :, np.newaxis]
+    )
+    da = xr.DataArray(
+        values,
+        dims=("row", "column", "x"),
+        coords={"x": x},
+    ).chunk({"row": 1, "column": 2, "x": -1})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={"slope": slopes, "intercept": intercepts},
+        output_result=False,
+    ).compute()
+
+    expected_slope, expected_intercept = xr.broadcast(
+        slopes.compute(), intercepts.compute()
+    )
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients.sel(param="slope"), expected_slope
+    )
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients.sel(param="intercept"), expected_intercept
+    )
+
+
+def test_modelfit_broadcast_params_override_guesses() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    slope = xr.DataArray([0.0, 0.0], dims="fit", coords={"fit": da.fit}).chunk(
+        {"fit": 1}
+    )
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.models.LinearModel(),
+        params={"slope": {"value": slope, "vary": False}},
+        guess=True,
+        output_result=False,
+    ).compute()
+
+    np.testing.assert_allclose(fit.modelfit_coefficients, [[0.0, 5.0], [0.0, 1.0]])
+
+
+def test_modelfit_dataset_with_different_chunk_layouts() -> None:
+    x = np.arange(5.0)
+    values = np.stack([linear(x, slope, 1.0) for slope in range(1, 5)])
+    ds = xr.Dataset(
+        {
+            "a": xr.DataArray(values, dims=("fit", "x")).chunk({"fit": 1, "x": -1}),
+            "b": xr.DataArray(values, dims=("fit", "x")).chunk({"fit": 2, "x": -1}),
+        },
+        coords={"fit": np.arange(4), "x": x},
+    )
+    slope_guess = xr.DataArray(np.zeros(4), dims="fit", coords={"fit": ds.fit}).chunk(
+        {"fit": 1}
+    )
+
+    fit = ds.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={"slope": slope_guess, "intercept": 0.0},
+        output_result=False,
+    )
+
+    assert fit.a_modelfit_coefficients.chunks == ((1, 1, 1, 1), (2,))
+    assert fit.b_modelfit_coefficients.chunks == ((2, 2), (2,))
+    expected = np.arange(1.0, 5.0)
+    computed = fit.compute()
+    np.testing.assert_allclose(
+        computed.a_modelfit_coefficients.sel(param="slope"), expected
+    )
+    np.testing.assert_allclose(
+        computed.b_modelfit_coefficients.sel(param="slope"), expected
+    )
+
+
+def test_modelfit_parameter_dataset_supports_mixed_object_specs() -> None:
+    x = np.arange(5.0)
+    slopes = np.arange(1.0, 4.0)
+    values = np.stack([linear(x, slope, 1.0) for slope in slopes])
+    ds = xr.Dataset(
+        {
+            "a": xr.DataArray(values, dims=("fit", "x")).chunk({"fit": 1, "x": -1}),
+            "b": xr.DataArray(values, dims=("fit", "x")).chunk({"fit": 2, "x": -1}),
+        },
+        coords={"fit": np.arange(slopes.size), "x": x},
+    )
+    supplied_a = lmfit.create_params(slope=0.0, intercept=0.0)
+    supplied_b = lmfit.create_params(slope=0.0, intercept=0.0)
+    dict_spec = {"slope": 0.0, "intercept": 0.0}
+    json_spec = lmfit.create_params(slope=0.0, intercept=0.0).dumps()
+    a_specs = np.empty(slopes.size, dtype=object)
+    b_specs = np.empty(slopes.size, dtype=object)
+    for i, spec in enumerate((dict_spec, supplied_a, json_spec)):
+        a_specs[i] = spec
+    for i, spec in enumerate((json_spec, dict_spec, supplied_b)):
+        b_specs[i] = spec
+    params = xr.Dataset(
+        {
+            "a": xr.DataArray(a_specs, dims="fit").chunk({"fit": 2}),
+            "b": xr.DataArray(b_specs, dims="fit").chunk({"fit": 1}),
+        },
+        coords={"fit": ds.fit},
+    )
+
+    fit = ds.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params=params,
+        output_result=False,
+    )
+
+    assert fit.a_modelfit_coefficients.chunks == ((1, 1, 1), (2,))
+    assert fit.b_modelfit_coefficients.chunks == ((2, 1), (2,))
+    computed = fit.compute()
+    np.testing.assert_allclose(
+        computed.a_modelfit_coefficients.sel(param="slope"), slopes
+    )
+    np.testing.assert_allclose(
+        computed.b_modelfit_coefficients.sel(param="slope"), slopes
+    )
+    assert supplied_a["slope"]._expr_eval is supplied_a._asteval
+    assert supplied_b["slope"]._expr_eval is supplied_b._asteval
 
 
 def test_modelfit_does_not_deepcopy_parameter_dataarrays() -> None:
