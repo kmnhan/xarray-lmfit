@@ -147,6 +147,49 @@ def test_da_modelfit_integer_best_fit(use_dask: bool) -> None:
     np.testing.assert_allclose(fit.modelfit_best_fit, expected)
 
 
+@pytest.mark.parametrize(
+    "weights",
+    [
+        np.arange(1.0, 7.0).reshape(2, 3),
+        np.arange(1.0, 7.0).reshape(2, 3).tolist(),
+        np.array(0.1),
+    ],
+    ids=["ndarray", "list", "zero-dimensional"],
+)
+def test_da_modelfit_multidimensional_array_weights(weights) -> None:
+    def plane(x, z, slope_x, slope_z, intercept):
+        return slope_x * x + slope_z * z + intercept
+
+    x, z = np.meshgrid(np.arange(2.0), np.arange(3.0), indexing="ij")
+    values = plane(x, z, 2.0, -0.5, 1.0)
+    values[1, 1] = np.nan
+    da = xr.DataArray(values, dims=("x", "z"))
+
+    fit = da.xlm.modelfit(
+        coords=[xr.DataArray(x, dims=da.dims), xr.DataArray(z, dims=da.dims)],
+        reduce_dims=da.dims,
+        model=lmfit.Model(plane, independent_vars=["x", "z"]),
+        params={"slope_x": 1.0, "slope_z": 0.0, "intercept": 0.0},
+        weights=weights,
+        output_result=False,
+    )
+
+    np.testing.assert_allclose(fit.modelfit_coefficients, [2.0, -0.5, 1.0])
+
+
+def test_da_modelfit_rejects_wrong_weight_size() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(linear(x, 2.0, 1.0), dims="x", coords={"x": x})
+
+    with pytest.raises(ValueError, match="same size as the data being fit"):
+        da.xlm.modelfit(
+            "x",
+            model=lmfit.Model(linear),
+            params={"slope": 1.0, "intercept": 0.0},
+            weights=np.ones(3),
+        )
+
+
 def test_da_modelfit_skipna_multiple_coords() -> None:
     def plane(x, z, slope_x, slope_z, intercept):
         return slope_x * x + slope_z * z + intercept
