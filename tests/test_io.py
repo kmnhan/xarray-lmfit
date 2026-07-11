@@ -120,6 +120,16 @@ def test_darr_io_dask_evaluates_fit_once() -> None:
     assert expected_calls == _FIT_CALLS
 
 
+@pytest.mark.parametrize("compute", [False, np.bool_(False)])
+def test_save_fit_rejects_deferred_writes(tmp_path, compute: bool) -> None:
+    path = tmp_path / "fit.nc"
+
+    with pytest.raises(ValueError, match="does not support compute=False"):
+        save_fit(xr.Dataset({"value": ("x", [1.0])}), path, compute=compute)
+
+    assert not path.exists()
+
+
 def test_ds_io() -> None:
     # Generate toy data
     x = np.linspace(0, 10, 50)[:, np.newaxis]
