@@ -252,11 +252,57 @@ def test_da_modelfit_without_model_results(
         output_result=False,
     ).compute()
 
-    assert output_dtypes == [(np.float64,) * 6]
+    assert output_dtypes == [(np.float64,) * 5]
     assert "modelfit_results" not in fit
     assert all(variable.dtype != object for variable in fit.data_vars.values())
     np.testing.assert_allclose(fit.modelfit_coefficients[0], [2.0, 1.0])
     assert np.isnan(fit.modelfit_coefficients[1]).all()
+
+
+def test_modelfit_data_bypasses_fit_graph() -> None:
+    fit_calls = 0
+
+    def counted_linear(x, slope, intercept):
+        nonlocal fit_calls
+        fit_calls += 1
+        return linear(x, slope, intercept)
+
+    x = np.arange(5, dtype=float)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)]).T.astype(np.int64),
+        dims=("x", "fit"),
+        coords={"fit": [0, 1], "x": x, "label": ("fit", ["a", "b"])},
+        attrs={"description": "input data"},
+    ).chunk({"fit": 1, "x": -1})
+
+    with xr.set_options(keep_attrs=False):
+        result = da.xlm.modelfit(
+            "x",
+            model=lmfit.Model(counted_linear),
+            params={"slope": 1.0, "intercept": 0.0},
+            output_result=False,
+        )
+
+    actual = result.modelfit_data.compute(scheduler="single-threaded")
+    expected = da.transpose("fit", "x").astype(np.float64).compute()
+    expected.name = "modelfit_data"
+    expected.attrs = {}
+
+    xr.testing.assert_identical(actual, expected)
+    assert fit_calls == 0
+
+    result.modelfit_coefficients.compute(scheduler="single-threaded")
+    assert fit_calls > 0
+
+    with xr.set_options(keep_attrs=True):
+        result_with_attrs = da.xlm.modelfit(
+            "x",
+            model=lmfit.Model(counted_linear),
+            params={"slope": 1.0, "intercept": 0.0},
+            output_result=False,
+        )
+
+    assert result_with_attrs.modelfit_data.attrs == da.attrs
 
 
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])

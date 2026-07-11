@@ -207,8 +207,7 @@ def _model_fit_wrapper(
     perr = np.full([n_params], np.nan)
     pcov = np.full([n_params, n_params], np.nan)
     stats = np.full([n_stats], np.nan)
-    data = Y.copy()
-    best = np.full(data.shape, np.nan, dtype=np.float64)
+    best = np.full(Y.shape, np.nan, dtype=np.float64)
 
     x = np.vstack([c.ravel() for c in coords__])
     y: npt.NDArray = Y.ravel()
@@ -246,11 +245,11 @@ def _model_fit_wrapper(
     if skipna and not len(y):
         # No data to fit
         if not output_result:
-            return popt, perr, pcov, stats, data, best
+            return popt, perr, pcov, stats, best
         modres = _make_failed_model_result(
             model, initial_params, y, weights_, indep_var_kwargs
         )
-        return popt, perr, pcov, stats, data, best, modres
+        return popt, perr, pcov, stats, best, modres
 
     if guess:
         if isinstance(model, lmfit.model.CompositeModel):
@@ -284,11 +283,11 @@ def _model_fit_wrapper(
         if errors == "raise":
             raise
         if not output_result:
-            return popt, perr, pcov, stats, data, best
+            return popt, perr, pcov, stats, best
         modres = _make_failed_model_result(
             model, initial_params, y, weights_, indep_var_kwargs
         )
-        return popt, perr, pcov, stats, data, best, modres
+        return popt, perr, pcov, stats, best, modres
     else:
         if modres.success:
             popt_list, perr_list = [], []
@@ -331,7 +330,7 @@ def _model_fit_wrapper(
 
             best.flat[mask] = modres.best_fit  # type: ignore[index, unused-ignore]
 
-    outputs = (popt, perr, pcov, stats, data, best)
+    outputs = (popt, perr, pcov, stats, best)
     if output_result:
         return (*outputs, modres)
     return outputs
@@ -439,9 +438,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 ["cov_i", "cov_j"],
                 ["fit_stat"],
                 reduce_dims_,
-                reduce_dims_,
             ]
-            output_dtypes: list[typing.Any] = [np.float64] * 6
+            output_dtypes: list[typing.Any] = [np.float64] * 5
             if output_result:
                 output_core_dims.append([])
                 output_dtypes.append(lmfit.model.ModelResult)
@@ -465,10 +463,15 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 output_dtypes=output_dtypes,
                 exclude_dims=set(reduce_dims_),
             )
-            popt, perr, pcov, stats, data, best = outputs[:6]
+            popt, perr, pcov, stats, best = outputs[:5]
 
             if output_result:
-                out[name + "modelfit_results"] = outputs[6]
+                out[name + "modelfit_results"] = outputs[5]
+
+            data_dims = [dim for dim in da.dims if dim not in reduce_dims_]
+            data_dims.extend(dim for dim in reduce_dims_ if dim in da.dims)
+            data = da.transpose(*data_dims).astype(np.float64, copy=False)
+            data.attrs = popt.attrs.copy()
 
             out[name + "modelfit_coefficients"] = popt
             out[name + "modelfit_stderr"] = perr
