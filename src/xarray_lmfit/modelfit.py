@@ -219,7 +219,7 @@ def _model_fit_wrapper(
     pcov = np.full([n_params, n_params], np.nan)
     stats = np.full([n_stats], np.nan)
     data = Y.copy()
-    best = np.full_like(data, np.nan)
+    best = np.full(data.shape, np.nan, dtype=np.float64)
 
     x = np.vstack([c.ravel() for c in coords__])
     y: npt.NDArray = Y.ravel()
