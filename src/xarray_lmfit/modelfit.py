@@ -38,25 +38,6 @@ def _nested_dict_vals(d) -> Iterable[typing.Any]:
             yield v
 
 
-def _broadcast_dict_values(d: dict[str, typing.Any]) -> dict[str, xr.DataArray]:
-    """Broadcast all values in a dictionary to DataArrays with matching dimensions."""
-    to_broadcast = {}
-    for k, v in d.items():
-        if isinstance(v, xr.DataArray | xr.Dataset):
-            to_broadcast[k] = v
-        else:
-            to_broadcast[k] = xr.DataArray(v)
-
-    d = dict(
-        zip(to_broadcast.keys(), xr.broadcast(*to_broadcast.values()), strict=True)
-    )
-    return typing.cast("dict[str, xr.DataArray]", d)
-
-
-def _concat_along_keys(d: dict[str, xr.DataArray], dim_name: str) -> xr.DataArray:
-    return xr.concat(d.values(), d.keys(), coords="minimal").rename(concat_dim=dim_name)
-
-
 def _parse_params(
     d: dict[str, typing.Any] | lmfit.Parameters,
 ) -> xr.DataArray | _ParametersWrapper:
@@ -73,44 +54,42 @@ def _parse_params(
     return _ParametersWrapper(lmfit.create_params(**d))
 
 
+def _build_params_from_values(
+    *values: typing.Any, keys: Sequence[tuple[str, str]]
+) -> lmfit.Parameters:
+    parsed: dict[str, dict[str, typing.Any]] = {}
+    for (param_name, attr_name), value in zip(keys, values, strict=True):
+        try:
+            is_missing = bool(np.isnan(value))
+        except TypeError:
+            is_missing = False
+
+        if not is_missing:
+            parsed.setdefault(param_name, {})[attr_name] = value
+
+    return lmfit.create_params(**parsed)
+
+
 def _parse_multiple_params(d: dict[str, typing.Any]) -> xr.DataArray:
-    parsed = {}
-    for k, value in d.items():
-        if isinstance(value, int | float | complex | xr.DataArray):
-            value = {"value": value}
+    keys: list[tuple[str, str]] = []
+    values: list[xr.DataArray] = []
+    for param_name, value in d.items():
+        attrs = value if isinstance(value, Mapping) else {"value": value}
+        for attr_name, attr_value in attrs.items():
+            keys.append((param_name, attr_name))
+            if isinstance(attr_value, xr.DataArray):
+                values.append(attr_value)
+            else:
+                values.append(xr.DataArray(attr_value))
 
-        parsed[k] = _concat_along_keys(_broadcast_dict_values(value), "__dict_keys")
-
-    da = _concat_along_keys(_broadcast_dict_values(parsed), "__param_names")
-
-    pnames = tuple(da["__param_names"].values)
-    argnames = tuple(da["__dict_keys"].values)
-
-    def _reduce_to_param(arr, axis=0):
-        axes = (axis,) if np.isscalar(axis) else tuple(axis)
-        axes = tuple(a if a >= 0 else a + arr.ndim for a in axes)
-        axes_set = set(axes)
-        out_arr = np.empty(
-            tuple(s for i, s in enumerate(arr.shape) if i not in axes_set), dtype=object
-        )
-        for i in range(out_arr.size):
-            out_arr.flat[i] = {}
-
-        for i, par in enumerate(pnames):
-            for j, name in enumerate(argnames):
-                for k, val in enumerate(arr[i, j].flat):
-                    if par not in out_arr.flat[k]:
-                        out_arr.flat[k][par] = {}
-
-                    if isinstance(val, str) or np.isfinite(val):
-                        out_arr.flat[k][par][name] = val
-
-        for i in range(out_arr.size):
-            out_arr.flat[i] = lmfit.create_params(**out_arr.flat[i])
-
-        return out_arr
-
-    return da.reduce(_reduce_to_param, ("__dict_keys", "__param_names"))
+    return xr.apply_ufunc(
+        functools.partial(_build_params_from_values, keys=tuple(keys)),
+        *values,
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[object],
+        join="outer",
+    )
 
 
 class _ParametersWrapper:

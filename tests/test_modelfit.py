@@ -462,6 +462,34 @@ def test_modelfit_dataarray_dict_params(use_dask: bool) -> None:
     assert "is_init_value" not in param_specs[0]["slope"]
 
 
+def test_modelfit_lazy_broadcast_params() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    slope_guess = xr.DataArray([0.0, 0.0], dims="fit", coords={"fit": da.fit}).chunk(
+        {"fit": 1}
+    )
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params={
+            "slope": {"value": slope_guess, "vary": False, "expr": None},
+            "intercept": np.float32(0.0),
+        },
+        output_result=False,
+    )
+
+    assert fit.modelfit_coefficients.chunks is not None
+    np.testing.assert_allclose(
+        fit.compute().modelfit_coefficients,
+        [[0.0, 5.0], [0.0, 1.0]],
+    )
+
+
 def test_modelfit_does_not_deepcopy_parameter_dataarrays() -> None:
     class UncopyableDataArray(xr.DataArray):
         __slots__ = ()
