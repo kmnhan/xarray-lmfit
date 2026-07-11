@@ -124,6 +124,29 @@ def test_da_modelfit_skipna_false_best_fit() -> None:
     np.testing.assert_allclose(fit.modelfit_best_fit, da)
 
 
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_da_modelfit_integer_best_fit(use_dask: bool) -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.array([0, 1, 5, 9, 13], dtype=np.int64),
+        dims="x",
+        coords={"x": x},
+    )
+    if use_dask:
+        da = da.chunk({"x": -1})
+
+    fit = da.xlm.modelfit(
+        coords="x",
+        model=lmfit.Model(linear),
+        params={"slope": 1.0, "intercept": 0.0},
+        output_result=False,
+    ).compute()
+
+    expected = linear(x, *fit.modelfit_coefficients.values)
+    assert fit.modelfit_best_fit.dtype == np.float64
+    np.testing.assert_allclose(fit.modelfit_best_fit, expected)
+
+
 def test_da_modelfit_skipna_multiple_coords() -> None:
     def plane(x, z, slope_x, slope_z, intercept):
         return slope_x * x + slope_z * z + intercept
