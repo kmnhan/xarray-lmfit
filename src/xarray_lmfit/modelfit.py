@@ -128,7 +128,7 @@ def _make_failed_model_result(
     model: lmfit.Model,
     initial_params: lmfit.Parameters,
     data: npt.NDArray,
-    weights: npt.NDArray | float | None,
+    weights: npt.NDArray | complex | None,
     independent_vars: Mapping[str, typing.Any],
 ) -> lmfit.model.ModelResult:
     """Create a failed result that can be serialized and reconstructed by lmfit."""
@@ -169,9 +169,19 @@ def _model_fit_wrapper(
     fit_kwargs = dict(model_fit_kwargs) if model_fit_kwargs is not None else {}
     if len(args) > n_coords + 1:
         fit_kwargs.pop("weights", None)
-        weights_ = args[n_coords + 1].ravel()
+        raw_weights = args[n_coords + 1]
     else:
-        weights_ = fit_kwargs.pop("weights", None)
+        raw_weights = fit_kwargs.pop("weights", None)
+
+    weights_: npt.NDArray | complex | None
+    if raw_weights is None:
+        weights_ = None
+    else:
+        weights_array = np.asarray(raw_weights)
+        if weights_array.ndim == 0:
+            weights_ = typing.cast("complex", weights_array.item())
+        else:
+            weights_ = weights_array.ravel()
 
     initial_params = lmfit.create_params() if guess else model.make_params()
 
@@ -224,11 +234,17 @@ def _model_fit_wrapper(
     x = np.vstack([c.ravel() for c in coords__])
     y: npt.NDArray = Y.ravel()
 
+    if isinstance(weights_, np.ndarray) and weights_.size != y.size:
+        raise ValueError(
+            "weights must be a scalar or have the same size as the data being fit; "
+            f"received {weights_.size} weights for {y.size} data points"
+        )
+
     if skipna:
         mask = ~np.isnan(y) & ~np.isnan(x).any(axis=0)
         x = x[:, mask]
         y = y[mask]
-        if weights_ is not None and not np.isscalar(weights_):
+        if isinstance(weights_, np.ndarray):
             weights_ = weights_[mask]
     else:
         mask = np.ones_like(y, dtype=bool)
