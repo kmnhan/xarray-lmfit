@@ -207,6 +207,13 @@ def _model_fit_wrapper(
     elif isinstance(init_params_, lmfit.Parameters):
         initial_params.update(init_params_)
 
+    elif isinstance(init_params_, Mapping):
+        param_specs = {
+            name: dict(value) if isinstance(value, Mapping) else {"value": value}
+            for name, value in init_params_.items()
+        }
+        initial_params.update(lmfit.create_params(**param_specs))
+
     popt = np.full([n_params], np.nan)
     perr = np.full([n_params], np.nan)
     pcov = np.full([n_params, n_params], np.nan)
