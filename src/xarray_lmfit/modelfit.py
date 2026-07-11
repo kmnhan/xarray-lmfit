@@ -99,8 +99,9 @@ class _ParametersWrapper:
     to xarray.apply_ufunc, we wrap lmfit.Parameters in this class.
     """
 
-    def __init__(self, params: lmfit.Parameters) -> None:
+    def __init__(self, params: lmfit.Parameters, *, complete: bool = False) -> None:
         self.params = params
+        self.complete = complete
 
 
 def _make_failed_model_result(
@@ -109,8 +110,12 @@ def _make_failed_model_result(
     data: npt.NDArray,
     weights: npt.NDArray | complex | None,
     independent_vars: Mapping[str, typing.Any],
+    *,
+    copy_params: bool = False,
 ) -> lmfit.model.ModelResult:
     """Create a failed result that can be serialized and reconstructed by lmfit."""
+    if copy_params:
+        initial_params = initial_params.copy()
     modres = lmfit.model.ModelResult(
         model,
         initial_params,
@@ -162,9 +167,22 @@ def _model_fit_wrapper(
         else:
             weights_ = weights_array.ravel()
 
-    initial_params = lmfit.create_params() if guess else model.make_params()
+    wrapped_params = (
+        init_params_.params if isinstance(init_params_, _ParametersWrapper) else None
+    )
+    uses_shared_template = (
+        isinstance(init_params_, _ParametersWrapper)
+        and init_params_.complete
+        and isinstance(wrapped_params, lmfit.Parameters)
+        and not guess
+    )
+    initial_params: lmfit.Parameters
+    if uses_shared_template:
+        initial_params = typing.cast("lmfit.Parameters", wrapped_params)
+    else:
+        initial_params = lmfit.create_params() if guess else model.make_params()
 
-    if isinstance(init_params_, _ParametersWrapper):
+    if isinstance(init_params_, _ParametersWrapper) and not uses_shared_template:
         other = init_params_.params
 
         if isinstance(other, lmfit.Parameters):
@@ -258,7 +276,12 @@ def _model_fit_wrapper(
         if not output_result:
             return popt, perr, pcov, stats, best
         modres = _make_failed_model_result(
-            model, initial_params, y, weights_, indep_var_kwargs
+            model,
+            initial_params,
+            y,
+            weights_,
+            indep_var_kwargs,
+            copy_params=uses_shared_template,
         )
         return popt, perr, pcov, stats, best, modres
 
@@ -296,7 +319,12 @@ def _model_fit_wrapper(
         if not output_result:
             return popt, perr, pcov, stats, best
         modres = _make_failed_model_result(
-            model, initial_params, y, weights_, indep_var_kwargs
+            model,
+            initial_params,
+            y,
+            weights_,
+            indep_var_kwargs,
+            copy_params=uses_shared_template,
         )
         return popt, perr, pcov, stats, best, modres
     else:
@@ -641,6 +669,12 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             params = _parse_params(params)
             # Now, params is either a _ParametersWrapper or a DataArray of Parameters
 
+        model_params: lmfit.Parameters | None = None
+        if isinstance(params, _ParametersWrapper) and not guess:
+            model_params = model.make_params()
+            model_params.update(params.params)
+            params = _ParametersWrapper(model_params, complete=True)
+
         reduce_dims_: list[Hashable]
         if not reduce_dims:
             reduce_dims_ = []
@@ -695,7 +729,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
 
         if param_names is None:
             # Call make_params before getting parameter names as it may add param hints
-            model.make_params()
+            if model_params is None:
+                model_params = model.make_params()
 
             # Get the parameter names (assume no expressions)
             param_names = model.param_names

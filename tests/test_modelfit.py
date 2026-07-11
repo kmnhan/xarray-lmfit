@@ -360,6 +360,62 @@ def test_modelfit_data_bypasses_fit_graph() -> None:
     assert result_with_attrs.modelfit_data.attrs == da.attrs
 
 
+def test_modelfit_builds_static_parameter_template_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_params_calls = 0
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, slope, 1.0) for slope in range(1, 6)]),
+        dims=("fit", "x"),
+        coords={"fit": np.arange(5), "x": x},
+    )
+    model = lmfit.Model(linear)
+    model.set_param_hint("slope", min=0.0)
+    original_make_params = model.make_params
+
+    def counted_make_params(*args, **kwargs):
+        nonlocal make_params_calls
+        make_params_calls += 1
+        return original_make_params(*args, **kwargs)
+
+    monkeypatch.setattr(model, "make_params", counted_make_params)
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=model,
+        params={"slope": 1.0, "intercept": 0.0},
+        output_result=False,
+    )
+
+    assert make_params_calls == 1
+    np.testing.assert_allclose(
+        fit.modelfit_coefficients.sel(param="slope"), np.arange(1.0, 6.0)
+    )
+    assert make_params_calls == 1
+
+
+def test_failed_results_do_not_share_static_parameter_template() -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.full((2, x.size), np.nan),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    supplied = lmfit.create_params(slope=1.0, intercept=0.0)
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params=supplied,
+    )
+    first, second = fit.modelfit_results.values
+
+    first.params["slope"].value = 10.0
+    assert second.params["slope"].value == 1.0
+    assert supplied["slope"].value == 1.0
+
+
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
 def test_ds_modelfit(
