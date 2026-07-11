@@ -7,6 +7,14 @@ import xarray as xr
 
 from xarray_lmfit import load_fit, save_fit
 
+_FIT_CALLS = 0
+
+
+def _counted_linear(x, slope, intercept):
+    global _FIT_CALLS
+    _FIT_CALLS += 1
+    return slope * x + intercept
+
 
 def test_darr_io() -> None:
     # Generate toy data
@@ -83,6 +91,33 @@ def test_darr_io_dask(use_client: bool) -> None:
     finally:
         if client is not None:
             client.shutdown()
+
+
+def test_darr_io_dask_evaluates_fit_once() -> None:
+    global _FIT_CALLS
+
+    x = np.linspace(0, 1, 10)
+    y_arr = xr.DataArray(
+        (2.0 * x + 1.0)[np.newaxis, :],
+        dims=("fit", "x"),
+        coords={"fit": [0], "x": x},
+    ).chunk({"fit": 1})
+    result_ds = y_arr.xlm.modelfit(
+        "x",
+        model=lmfit.Model(_counted_linear),
+        params={"slope": 1.0, "intercept": 0.0},
+    )
+
+    _FIT_CALLS = 0
+    result_ds.compute()
+    expected_calls = _FIT_CALLS
+
+    _FIT_CALLS = 0
+    with tempfile.NamedTemporaryFile(suffix=".nc") as tmp:
+        save_fit(result_ds, tmp.name)
+
+    assert expected_calls > 0
+    assert expected_calls == _FIT_CALLS
 
 
 def test_ds_io() -> None:
