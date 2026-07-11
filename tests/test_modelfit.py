@@ -367,6 +367,35 @@ def test_modelfit_params(use_dask: bool, progress: bool) -> None:
     np.testing.assert_allclose(fit.modelfit_coefficients, expected, atol=1e-8)
 
 
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_modelfit_dataarray_dict_params(use_dask: bool) -> None:
+    x = np.arange(5.0)
+    da = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    if use_dask:
+        da = da.chunk({"fit": 1})
+
+    param_specs = np.empty(2, dtype=object)
+    param_specs[:] = [
+        {"slope": {"value": 0.0, "vary": False}, "intercept": 0.0},
+        {"slope": {"value": 0.0, "vary": False}, "intercept": 0.0},
+    ]
+    params = xr.DataArray(param_specs, dims="fit", coords={"fit": da.fit})
+
+    fit = da.xlm.modelfit(
+        "x",
+        model=lmfit.Model(linear),
+        params=params,
+        output_result=False,
+    ).compute()
+
+    np.testing.assert_allclose(fit.modelfit_coefficients, [[0.0, 5.0], [0.0, 1.0]])
+    assert "is_init_value" not in param_specs[0]["slope"]
+
+
 def test_modelfit_does_not_deepcopy_parameter_dataarrays() -> None:
     class UncopyableDataArray(xr.DataArray):
         __slots__ = ()
