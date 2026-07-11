@@ -124,6 +124,28 @@ class _ParametersWrapper:
         self.params = params
 
 
+def _make_failed_model_result(
+    model: lmfit.Model,
+    initial_params: lmfit.Parameters,
+    data: npt.NDArray,
+    weights: npt.NDArray | float | None,
+    independent_vars: Mapping[str, typing.Any],
+) -> lmfit.model.ModelResult:
+    """Create a failed result that can be serialized and reconstructed by lmfit."""
+    modres = lmfit.model.ModelResult(
+        model,
+        initial_params,
+        data=data,
+        weights=weights,
+        fcn_args=(data, weights),
+        fcn_kws=independent_vars,
+    )
+    modres.init_values = model._make_all_args(modres.init_params)
+    modres.best_values = model._make_all_args(modres.params)
+    modres.success = False
+    return modres
+
+
 def _model_fit_wrapper(
     Y: npt.NDArray,
     *args,
@@ -201,15 +223,6 @@ def _model_fit_wrapper(
         y = y[mask]
         if weights_ is not None and not np.isscalar(weights_):
             weights_ = weights_[mask]
-        if not len(y):
-            # No data to fit
-            if not output_result:
-                return popt, perr, pcov, stats, data, best
-            modres = lmfit.model.ModelResult(
-                model, initial_params, data=y, weights=weights_
-            )
-            modres.success = False
-            return popt, perr, pcov, stats, data, best, modres
     else:
         mask = np.ones_like(y, dtype=bool)
 
@@ -227,6 +240,15 @@ def _model_fit_wrapper(
             )
     else:
         raise ValueError("Independent variables not defined in model")
+
+    if skipna and not len(y):
+        # No data to fit
+        if not output_result:
+            return popt, perr, pcov, stats, data, best
+        modres = _make_failed_model_result(
+            model, initial_params, y, weights_, indep_var_kwargs
+        )
+        return popt, perr, pcov, stats, data, best, modres
 
     if guess:
         if isinstance(model, lmfit.model.CompositeModel):
@@ -261,10 +283,9 @@ def _model_fit_wrapper(
             raise
         if not output_result:
             return popt, perr, pcov, stats, data, best
-        modres = lmfit.model.ModelResult(
-            model, initial_params, data=y, weights=weights_
+        modres = _make_failed_model_result(
+            model, initial_params, y, weights_, indep_var_kwargs
         )
-        modres.success = False
         return popt, perr, pcov, stats, data, best, modres
     else:
         if modres.success:

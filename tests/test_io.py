@@ -130,6 +130,38 @@ def test_save_fit_rejects_deferred_writes(tmp_path, compute: bool) -> None:
     assert not path.exists()
 
 
+@pytest.mark.parametrize("skipna", [True, False], ids=["empty", "fit-error"])
+def test_failed_results_roundtrip(skipna: bool) -> None:
+    x = np.arange(5.0)
+    failed_data = np.full_like(x, np.nan)
+    if not skipna:
+        failed_data[0] = 1.0
+    y_arr = xr.DataArray(
+        np.stack([2.0 * x + 1.0, failed_data]),
+        dims=("fit", "x"),
+        coords={"fit": [0, 1], "x": x},
+    )
+    result_ds = y_arr.xlm.modelfit(
+        "x",
+        model=lmfit.models.LinearModel(),
+        params={"slope": 1.0, "intercept": 0.0},
+        skipna=skipna,
+        errors="ignore",
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".nc") as tmp:
+        save_fit(result_ds, tmp.name)
+        loaded_ds = load_fit(tmp.name)
+
+    assert loaded_ds.modelfit_results[0].item().success
+    failed_result = loaded_ds.modelfit_results[1].item()
+    assert not failed_result.success
+    if skipna:
+        assert failed_result.data.size == 0
+    else:
+        np.testing.assert_equal(failed_result.data, failed_data)
+
+
 def test_ds_io() -> None:
     # Generate toy data
     x = np.linspace(0, 10, 50)[:, np.newaxis]
