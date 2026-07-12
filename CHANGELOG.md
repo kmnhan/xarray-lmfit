@@ -1,3 +1,37 @@
+## v0.5.5 (2026-07-12)
+
+### 🐞 Bug Fixes
+
+- **modelfit:** support lazy broadcast parameter inputs ([2578328](https://github.com/kmnhan/xarray-lmfit/commit/2578328a513f1db24cb90b3102dc66e7a6ee4e57))
+
+- **modelfit:** accept multidimensional array-like fit weights ([fdfb797](https://github.com/kmnhan/xarray-lmfit/commit/fdfb79752c2c31ea3e5652a8d5ecf0bea4ae614f))
+
+- **modelfit:** preserve floating-point best fits for integer data ([900f1da](https://github.com/kmnhan/xarray-lmfit/commit/900f1da6bd89162afae8575c384a642d1d383e2f))
+
+- **modelfit:** apply dict-like parameters stored in DataArrays ([eaed21c](https://github.com/kmnhan/xarray-lmfit/commit/eaed21c87675ce80532a0f343ed3e79b10059544))
+
+- **io:** round-trip skipped and failed fit results ([a0a8032](https://github.com/kmnhan/xarray-lmfit/commit/a0a8032abed1142075d479f5de36971b624d8201))
+
+- **io:** reject unsafe deferred fit writes ([b2f4606](https://github.com/kmnhan/xarray-lmfit/commit/b2f4606764a42199adbdfba52d61c50617084584))
+
+- **io:** save lazy fits from one consistent evaluation ([6fc28d5](https://github.com/kmnhan/xarray-lmfit/commit/6fc28d5ed741889c4e54df6d8a536c4c8adb9cd7))
+
+- save lazy Dask fit results without manual computation ([6a6b98b](https://github.com/kmnhan/xarray-lmfit/commit/6a6b98b05426f0e558fbb906b904749a01799e3c))
+
+- skip incomplete multidimensional coordinates during fitting ([430ddfc](https://github.com/kmnhan/xarray-lmfit/commit/430ddfce7c4861c898b6ff7feadbc0181f6448ae))
+
+- allow `skipna=False` fits to store best-fit curves (#57) ([436ec47](https://github.com/kmnhan/xarray-lmfit/commit/436ec47c72fc5cf78d7a949a2b3e648ff08c0f5a))
+
+  Curve fits run with `skipna=False` now correctly write best-fit values for float-valued data instead of failing when recording the fit result.
+
+### ⚡️ Performance
+
+- **modelfit:** reduce repeated fitting and Dask graph overhead (#61) ([cd22928](https://github.com/kmnhan/xarray-lmfit/commit/cd22928bd3229bdbe5464ffc3295b422c3ebd5ce))
+
+- omit full fit results when output is disabled ([f86e777](https://github.com/kmnhan/xarray-lmfit/commit/f86e7774a935755f2842202e7f57f7b51784a99a))
+
+- avoid copying DataArray parameter values ([9451ee9](https://github.com/kmnhan/xarray-lmfit/commit/9451ee9b9bce26df2b3dd019dbae847c9f8696be))
+
 ## v0.5.4 (2026-01-05)
 
 ### 🐞 Bug Fixes
