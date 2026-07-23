@@ -1,3 +1,9 @@
+## v0.5.6 (2026-07-23)
+
+### 🐞 Bug Fixes
+
+- **docs:** fix documentation build failures(#63) ([1bbfec7](https://github.com/kmnhan/xarray-lmfit/commit/1bbfec737265176a3c6fdb08c27b890ee7bc2337))
+
 ## v0.5.5 (2026-07-12)
 
 ### 🐞 Bug Fixes
