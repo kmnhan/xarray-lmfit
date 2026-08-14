@@ -43,6 +43,7 @@ def test_da_modelfit(
         progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+    assert "modelfit_weights" not in fit
 
     # Params as lmfit.Parameters
     fit = fit_test_darr.xlm.modelfit(
@@ -54,34 +55,52 @@ def test_da_modelfit(
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
 
     # Test weights input as DataArray
+    weights = 1.0 / np.sqrt(fit_test_darr)
     fit = fit_test_darr.xlm.modelfit(
         coords="t",
         model=exp_decay_model,
         params={"n0": 4, "tau": {"min": 2, "max": 6}},
-        weights=1.0 / np.sqrt(fit_test_darr),
+        weights=weights,
         progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+    xr.testing.assert_identical(
+        fit.modelfit_weights, weights.rename("modelfit_weights")
+    )
 
     # Test weights input as DataArray (less broadcasted)
+    weights = np.sqrt(fit_test_darr.t)
     fit = fit_test_darr.xlm.modelfit(
         coords="t",
         model=exp_decay_model,
         params={"n0": 4, "tau": {"min": 2, "max": 6}},
-        weights=np.sqrt(fit_test_darr.t),
+        weights=weights,
         progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+    xr.testing.assert_identical(
+        fit.modelfit_weights, weights.rename("modelfit_weights")
+    )
 
     # Test weights input as ndarray
+    weights_array = np.sqrt(fit_test_darr.t.values)
     fit = fit_test_darr.xlm.modelfit(
         coords="t",
         model=exp_decay_model,
         params={"n0": 4, "tau": {"min": 2, "max": 6}},
-        weights=np.sqrt(fit_test_darr.t.values),
+        weights=weights_array,
         progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+    xr.testing.assert_identical(
+        fit.modelfit_weights,
+        xr.DataArray(
+            weights_array,
+            dims="t",
+            coords={"t": fit_test_darr.t},
+            name="modelfit_weights",
+        ),
+    )
 
     # Test weights input as scalar
     fit = fit_test_darr.xlm.modelfit(
@@ -92,6 +111,9 @@ def test_da_modelfit(
         progress=progress,
     )
     np.testing.assert_allclose(fit.modelfit_coefficients, fit_expected_darr, rtol=1e-3)
+    xr.testing.assert_identical(
+        fit.modelfit_weights, xr.DataArray(0.1, name="modelfit_weights")
+    )
 
     if use_dask:
         fit_test_darr = fit_test_darr.compute()
@@ -172,6 +194,15 @@ def test_da_modelfit_single_coord_mask_aligns_weights(use_dask: bool) -> None:
 
     np.testing.assert_allclose(fit.modelfit_coefficients, [2.0, 1.0])
     assert fit.modelfit_stats.sel(fit_stat="ndata") == 5
+    xr.testing.assert_identical(
+        fit.modelfit_weights,
+        xr.DataArray(
+            np.arange(1.0, 8.0),
+            dims="point",
+            coords={"point": np.arange(7)},
+            name="modelfit_weights",
+        ),
+    )
     assert np.isnan(fit.modelfit_best_fit[[1, 4]]).all()
     np.testing.assert_allclose(
         fit.modelfit_best_fit[[0, 2, 3, 5, 6]],
@@ -230,6 +261,18 @@ def test_da_modelfit_multidimensional_array_weights(weights) -> None:
     )
 
     np.testing.assert_allclose(fit.modelfit_coefficients, [2.0, -0.5, 1.0])
+    if np.ndim(weights) == 0:
+        expected_weights = xr.DataArray(
+            np.asarray(weights).item(), name="modelfit_weights"
+        )
+    else:
+        expected_weights = xr.DataArray(
+            np.asarray(weights).reshape(2, 3),
+            dims=("x", "z"),
+            coords={"x": np.arange(2), "z": np.arange(3)},
+            name="modelfit_weights",
+        )
+    xr.testing.assert_identical(fit.modelfit_weights, expected_weights)
 
 
 def test_da_modelfit_rejects_wrong_weight_size() -> None:
@@ -329,12 +372,19 @@ def test_modelfit_data_bypasses_fit_graph() -> None:
         coords={"fit": [0, 1], "x": x, "label": ("fit", ["a", "b"])},
         attrs={"description": "input data"},
     ).chunk({"fit": 1, "x": -1})
+    weights = xr.DataArray(
+        np.linspace(1.0, 2.0, x.size),
+        dims="x",
+        coords={"x": x},
+        attrs={"description": "fit weights"},
+    ).chunk({"x": -1})
 
     with xr.set_options(keep_attrs=False):
         result = da.xlm.modelfit(
             "x",
             model=lmfit.Model(counted_linear),
             params={"slope": 1.0, "intercept": 0.0},
+            weights=weights,
             output_result=False,
         )
 
@@ -344,6 +394,12 @@ def test_modelfit_data_bypasses_fit_graph() -> None:
     expected.attrs = {}
 
     xr.testing.assert_identical(actual, expected)
+    assert fit_calls == 0
+
+    actual_weights = result.modelfit_weights.compute(scheduler="single-threaded")
+    xr.testing.assert_identical(
+        actual_weights, weights.compute().rename("modelfit_weights")
+    )
     assert fit_calls == 0
 
     result.modelfit_coefficients.compute(scheduler="single-threaded")
@@ -476,6 +532,38 @@ def test_ds_modelfit(
     assert "a" in fit.param
     assert fit.test0_modelfit_results.dims == ()
     assert fit.test1_modelfit_results.dims == ()
+
+
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_ds_modelfit_outputs_weights(
+    use_dask: bool,
+    exp_decay_model: lmfit.Model,
+    fit_test_darr: xr.DataArray,
+) -> None:
+    fit_test_ds = xr.Dataset({"test0": fit_test_darr, "test1": fit_test_darr})
+    weights = xr.DataArray(
+        np.linspace(1.0, 2.0, fit_test_darr.sizes["t"]),
+        dims="t",
+        coords={"t": fit_test_darr.t},
+        attrs={"description": "fit weights"},
+    )
+    if use_dask:
+        fit_test_ds = fit_test_ds.chunk({"x": 1})
+        weights = weights.chunk({"t": -1})
+
+    fit = fit_test_ds.xlm.modelfit(
+        coords="t",
+        model=exp_decay_model,
+        params={"n0": 4, "tau": {"min": 2, "max": 6}},
+        weights=weights,
+        output_result=False,
+    )
+
+    expected = weights.rename("test0_modelfit_weights")
+    xr.testing.assert_identical(fit.test0_modelfit_weights, expected)
+    xr.testing.assert_identical(
+        fit.test1_modelfit_weights, expected.rename("test1_modelfit_weights")
+    )
 
 
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])

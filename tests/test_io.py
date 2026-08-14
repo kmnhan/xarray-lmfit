@@ -23,7 +23,12 @@ def test_darr_io() -> None:
 
     # Add some noise with fixed seed for reproducibility
     rng = np.random.default_rng(5)
-    yerr = np.full_like(x, 0.3)
+    yerr = xr.DataArray(
+        np.full_like(x, 0.3),
+        dims="x",
+        coords={"x": x},
+        attrs={"long_name": "standard uncertainty"},
+    )
     y = rng.normal(y, yerr)
 
     y_arr = xr.DataArray(y, dims=("x",), coords={"x": x})
@@ -35,6 +40,7 @@ def test_darr_io() -> None:
         params=model.make_params(
             slope=-0.1, center=5.0, sigma={"value": 0.1, "min": 0}
         ),
+        weights=1.0 / yerr,
     )
 
     with tempfile.NamedTemporaryFile(suffix=".nc") as tmp:
@@ -43,6 +49,9 @@ def test_darr_io() -> None:
         loaded_ds = load_fit(tmp.name)
         assert isinstance(loaded_ds["modelfit_results"].item(), lmfit.model.ModelResult)
         assert str(loaded_ds["modelfit_results"].item().model) == str(model)
+        xr.testing.assert_identical(
+            loaded_ds.modelfit_weights, result_ds.modelfit_weights
+        )
 
         xr.testing.assert_identical(
             loaded_ds.drop_vars("modelfit_results"),

@@ -606,11 +606,36 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             input_core_dims.extend([] for _ in parameter_arrays)
 
             if isinstance(weight_da, xr.DataArray):
-                weights = weight_da.broadcast_like(da)
-                args.append(weights)
+                fit_weights = weight_da.broadcast_like(da)
+                args.append(fit_weights)
 
                 # Core dims for weights
-                input_core_dims.append([d for d in reduce_dims_ if d in weights.dims])
+                input_core_dims.append(
+                    [d for d in reduce_dims_ if d in fit_weights.dims]
+                )
+                output_weights = weight_da
+            elif (raw_weights := model_fit_kwargs.get("weights")) is not None:
+                output_weights = xr.DataArray(raw_weights)
+                if output_weights.ndim != 0:
+                    core_shape = tuple(da.sizes[dim] for dim in reduce_dims_)
+                    if output_weights.size != np.prod(core_shape):
+                        raise ValueError(
+                            "weights must be a scalar or have the same size as the "
+                            "data being fit; "
+                            f"received {output_weights.size} weights for "
+                            f"{np.prod(core_shape)} data points"
+                        )
+                    output_weights = xr.DataArray(
+                        output_weights.data.reshape(core_shape),
+                        dims=reduce_dims_,
+                        coords={
+                            dim: da.coords[dim]
+                            for dim in reduce_dims_
+                            if dim in da.coords
+                        },
+                    )
+            else:
+                output_weights = None
 
             output_core_dims: list[list[Hashable]] = [
                 ["param"],
@@ -658,6 +683,8 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
             out[name + "modelfit_covariance"] = pcov
             out[name + "modelfit_stats"] = stats
             out[name + "modelfit_data"] = data
+            if output_weights is not None:
+                out[name + "modelfit_weights"] = output_weights
             out[name + "modelfit_best_fit"] = best
 
         return _output_wrapper
@@ -780,6 +807,9 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
                 <lmfit.minimizer.minimize>`.
             [var]_modelfit_data
                 Data used for the fit.
+            [var]_modelfit_weights
+                Weights supplied to the fit. Only included when ``weights`` are
+                supplied.
             [var]_modelfit_best_fit
                 The best fit data of the fit.
 
