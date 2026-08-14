@@ -1,3 +1,9 @@
+## v0.6.0 (2026-08-14)
+
+### ✨ Features
+
+- **modelfit:** include weights in output dataset when supplied (#65) ([5b53ef9](https://github.com/kmnhan/xarray-lmfit/commit/5b53ef9e0d6e0d9bebfb3dd09f964118f0134e2f))
+
 ## v0.5.6 (2026-07-23)
 
 ### 🐞 Bug Fixes
