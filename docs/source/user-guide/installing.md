@@ -22,6 +22,7 @@ To verify that `xarray-lmfit` has been installed correctly, you can run the foll
 
 ```python
 import xarray_lmfit
+
 print(xarray_lmfit.__version__)
 ```
 
