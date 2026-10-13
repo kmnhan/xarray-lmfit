@@ -784,7 +784,9 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
 
             The ``weights`` keyword argument may also be provided as a DataArray, which
             will be broadcasted appropriately. The weights must share at least one
-            dimension with the calling object.
+            dimension with the calling object. Indexed coordinates are retained for
+            alignment. All other coordinates on the weights are ignored for fitting
+            and storage. Weight values and attributes are retained.
 
         Returns
         -------
@@ -956,7 +958,9 @@ class ModelFitDatasetAccessor(XLMDatasetAccessor):
         model_fit_kwargs: dict[str, typing.Any] = dict(kwargs)
         weight_da: xr.DataArray | None = None
         if isinstance(model_fit_kwargs.get("weights"), xr.DataArray):
-            weight_da = typing.cast("xr.DataArray", model_fit_kwargs.pop("weights"))
+            weight_da = typing.cast(
+                "xr.DataArray", model_fit_kwargs.pop("weights")
+            ).reset_coords(drop=True)
 
         _output_wrapper = self._define_output_wrapper(
             model=model,
