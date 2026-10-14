@@ -566,6 +566,117 @@ def test_ds_modelfit_outputs_weights(
     )
 
 
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+@pytest.mark.parametrize("as_dataset", [True, False], ids=["dataset", "dataarray"])
+@pytest.mark.parametrize(
+    "output_coord", [True, False], ids=["output_coord", "aux_coords"]
+)
+def test_modelfit_weights_ignore_auxiliary_coords(
+    use_dask: bool, as_dataset: bool, output_coord: bool
+) -> None:
+    x = np.arange(5, dtype=float)
+    data = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)]),
+        dims=("fit", "x"),
+        coords={
+            "fit": ["first", "second"],
+            "x": x,
+            "sample": "data sample",
+            "label": ("fit", ["a", "b"]),
+            "energy": ("x", x + 10.0),
+        },
+        attrs={"description": "input data"},
+    )
+    weights = xr.DataArray(
+        np.tile(np.linspace(1.0, 2.0, x.size), (2, 1)),
+        dims=("fit", "x"),
+        coords={
+            "fit": data.fit,
+            "x": x,
+            "sample": "weight sample",
+            "label": ("fit", ["weight a", "weight b"]),
+            "energy": ("x", x + 20.0),
+            "weight_note": "extra scalar",
+            "weight_profile": ("x", x**2),
+        },
+        attrs={"description": "fit weights"},
+    )
+    if use_dask:
+        data = data.chunk({"fit": 1})
+        weights = weights.chunk({"fit": 1})
+    if output_coord:
+        weights = weights.assign_coords(param="unused output dimension name")
+    original_weights = weights.copy(deep=True)
+    clean_weights = weights.reset_coords(drop=True)
+    obj = xr.Dataset({"first": data, "second": 2.0 * data}) if as_dataset else data
+    kwargs = {
+        "model": lmfit.Model(linear),
+        "params": {"slope": 1.0, "intercept": 0.0},
+        "output_result": False,
+    }
+
+    with xr.set_options(keep_attrs=True):
+        expected = obj.xlm.modelfit("x", weights=clean_weights, **kwargs)
+        actual = obj.xlm.modelfit("x", weights=weights, **kwargs)
+
+    prefixes = ("first_", "second_") if as_dataset else ("",)
+    for prefix in prefixes:
+        stored = actual[prefix + "modelfit_weights"]
+        assert stored.attrs == weights.attrs
+        assert stored.chunks == weights.chunks
+        np.testing.assert_allclose(stored, clean_weights)
+    xr.testing.assert_identical(actual.compute(), expected.compute())
+    xr.testing.assert_identical(weights, original_weights)
+    assert not {"weight_note", "weight_profile"} & set(actual.coords)
+    assert actual.sample.item() == "data sample"
+    xr.testing.assert_identical(actual.label, data.label)
+    xr.testing.assert_identical(actual.energy, data.energy)
+
+
+@pytest.mark.parametrize("use_dask", [True, False], ids=["dask", "no_dask"])
+def test_modelfit_weights_preserve_index_alignment(use_dask: bool) -> None:
+    x = np.arange(5, dtype=float)
+    data = xr.DataArray(
+        np.stack([linear(x, 2.0, 1.0), linear(x, -1.0, 3.0)])
+        + np.array([0.2, -0.4, 0.3, -0.1, 0.5]),
+        dims=("fit", "x"),
+        coords={"fit": ["first", "second"], "x": x},
+    )
+    weights = xr.DataArray(
+        [[5.0, 4.0, 3.0, 2.0, 1.0], [1.0, 2.0, 3.0, 4.0, 5.0]],
+        dims=("fit", "x"),
+        coords={"fit": ["second", "first"], "x": x, "note": "unused"},
+    )
+    if use_dask:
+        data = data.chunk({"fit": 1})
+        weights = weights.chunk({"fit": 1})
+    model = lmfit.Model(linear)
+    params = {"slope": 1.0, "intercept": 0.0}
+    actual = data.xlm.modelfit(
+        "x", model=model, params=params, weights=weights, output_result=False
+    ).compute()
+
+    for label in data.fit.values:
+        expected = model.fit(
+            data.sel(fit=label).values,
+            x=x,
+            weights=weights.sel(fit=label).values,
+            **params,
+        )
+        np.testing.assert_allclose(
+            actual.modelfit_coefficients.sel(fit=label),
+            [expected.params[name].value for name in model.param_names],
+        )
+    xr.testing.assert_identical(actual.fit, data.fit)
+    xr.testing.assert_identical(
+        actual.modelfit_weights,
+        weights.reset_coords(drop=True)
+        .sel(fit=data.fit)
+        .compute()
+        .rename("modelfit_weights"),
+    )
+
+
 @pytest.mark.parametrize("progress", [True, False], ids=["tqdm", "no_tqdm"])
 @pytest.mark.parametrize("use_dask", [True, False])
 def test_modelfit_params(use_dask: bool, progress: bool) -> None:
