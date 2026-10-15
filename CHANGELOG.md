@@ -1,3 +1,11 @@
+## v0.6.1 (2026-10-15)
+
+### 🐞 Bug Fixes
+
+- **modelfit:** ignore auxiliary coordinates on fit weights (#73) ([aa8da4b](https://github.com/kmnhan/xarray-lmfit/commit/aa8da4bc17c731418fcf352dff0f4fc620e3b027))
+
+  Fixes an issue where coordinates on DataArray weights could add metadata to fit results or conflict with output dimensions.
+
 ## v0.6.0 (2026-08-14)
 
 ### ✨ Features
